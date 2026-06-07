@@ -7,3 +7,5 @@
 /build
 /captures
 .cxx
+# cargo-ndk output — produced by the buildRustAndroid Gradle task (preBuild)
+src/main/jniLibs/

@@ -99,8 +99,8 @@ class CellInfo {
     required this.name,
     /// Cell status
     required this.status,
-    /// Number of platforms in this cell
-    required this.platformCount,
+    /// Number of nodes in this cell
+    required this.nodeCount,
     /// Center latitude (WGS84)
     required this.centerLat,
     /// Center longitude (WGS84)
@@ -109,7 +109,7 @@ class CellInfo {
     required this.capabilities,
     /// Parent formation ID (if any)
     required this.formationId,
-    /// Cell leader platform ID (if any)
+    /// Cell leader node ID (if any)
     required this.leaderId,
     /// Last update timestamp (Unix millis)
     required this.lastUpdate,
@@ -123,8 +123,8 @@ class CellInfo {
   final String name;
   /// Cell status
   final CellStatus status;
-  /// Number of platforms in this cell
-  final int platformCount;
+  /// Number of nodes in this cell
+  final int nodeCount;
   /// Center latitude (WGS84)
   final double centerLat;
   /// Center longitude (WGS84)
@@ -133,7 +133,7 @@ class CellInfo {
   final List<String> capabilities;
   /// Parent formation ID (if any)
   final String? formationId;
-  /// Cell leader platform ID (if any)
+  /// Cell leader node ID (if any)
   final String? leaderId;
   /// Last update timestamp (Unix millis)
   final int lastUpdate;
@@ -145,7 +145,7 @@ class CellInfo {
       'id': this.id,
       'name': this.name,
       'status': CellStatusFfiCodec.encode(this.status),
-      'platformCount': this.platformCount,
+      'nodeCount': this.nodeCount,
       'centerLat': this.centerLat,
       'centerLon': this.centerLon,
       'capabilities': this.capabilities,
@@ -161,7 +161,7 @@ class CellInfo {
       id: json['id'] as String,
       name: json['name'] as String,
       status: CellStatusFfiCodec.decode(json['status'] as String),
-      platformCount: (json['platformCount'] as num).toInt(),
+      nodeCount: (json['nodeCount'] as num).toInt(),
       centerLat: (json['centerLat'] as num).toDouble(),
       centerLon: (json['centerLon'] as num).toDouble(),
       capabilities: (json['capabilities'] as List).map((item) => item as String).toList(),
@@ -176,7 +176,7 @@ class CellInfo {
     String? id,
     String? name,
     CellStatus? status,
-    int? platformCount,
+    int? nodeCount,
     double? centerLat,
     double? centerLon,
     List<String>? capabilities,
@@ -189,7 +189,7 @@ class CellInfo {
       id: id ?? this.id,
       name: name ?? this.name,
       status: status ?? this.status,
-      platformCount: platformCount ?? this.platformCount,
+      nodeCount: nodeCount ?? this.nodeCount,
       centerLat: centerLat ?? this.centerLat,
       centerLon: centerLon ?? this.centerLon,
       capabilities: capabilities ?? this.capabilities,
@@ -202,16 +202,16 @@ class CellInfo {
 
   @override
   String toString() {
-    return 'CellInfo(id: $id, name: $name, status: $status, platformCount: $platformCount, centerLat: $centerLat, centerLon: $centerLon, capabilities: $capabilities, formationId: $formationId, leaderId: $leaderId, lastUpdate: $lastUpdate, scenarioCommand: $scenarioCommand)';
+    return 'CellInfo(id: $id, name: $name, status: $status, nodeCount: $nodeCount, centerLat: $centerLat, centerLon: $centerLon, capabilities: $capabilities, formationId: $formationId, leaderId: $leaderId, lastUpdate: $lastUpdate, scenarioCommand: $scenarioCommand)';
   }
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is CellInfo && id == other.id && name == other.name && status == other.status && platformCount == other.platformCount && centerLat == other.centerLat && centerLon == other.centerLon && capabilities == other.capabilities && formationId == other.formationId && leaderId == other.leaderId && lastUpdate == other.lastUpdate && scenarioCommand == other.scenarioCommand;
+      other is CellInfo && id == other.id && name == other.name && status == other.status && nodeCount == other.nodeCount && centerLat == other.centerLat && centerLon == other.centerLon && capabilities == other.capabilities && formationId == other.formationId && leaderId == other.leaderId && lastUpdate == other.lastUpdate && scenarioCommand == other.scenarioCommand;
 
   @override
-  int get hashCode => Object.hash(id, name, status, platformCount, centerLat, centerLon, capabilities, formationId, leaderId, lastUpdate, scenarioCommand);
+  int get hashCode => Object.hash(id, name, status, nodeCount, centerLat, centerLon, capabilities, formationId, leaderId, lastUpdate, scenarioCommand);
 }
 
 /// Command information for C2
@@ -221,7 +221,7 @@ class CommandInfo {
     required this.id,
     /// Command type (e.g., "TRACK_TARGET", "MOVE", "ABORT")
     required this.commandType,
-    /// Target cell or platform ID
+    /// Target cell or node ID
     required this.targetId,
     /// Command parameters as JSON string
     required this.parameters,
@@ -241,7 +241,7 @@ class CommandInfo {
   final String id;
   /// Command type (e.g., "TRACK_TARGET", "MOVE", "ABORT")
   final String commandType;
-  /// Target cell or platform ID
+  /// Target cell or node ID
   final String targetId;
   /// Command parameters as JSON string
   final String parameters;
@@ -413,7 +413,7 @@ class MarkerInfo {
     required this.hae,
     /// Unix epoch milliseconds — the publisher's clock at marker
     /// drop time. Receivers DON'T treat this as a presence-staleness
-    /// timestamp (markers persist until deleted, unlike platforms);
+    /// timestamp (markers persist until deleted, unlike nodes);
     /// it's purely "when did the operator drop this pin."
     required this.ts,
     /// Operator callsign of the publisher. `None` when the publisher
@@ -453,7 +453,7 @@ class MarkerInfo {
   final double? hae;
   /// Unix epoch milliseconds — the publisher's clock at marker
   /// drop time. Receivers DON'T treat this as a presence-staleness
-  /// timestamp (markers persist until deleted, unlike platforms);
+  /// timestamp (markers persist until deleted, unlike nodes);
   /// it's purely "when did the operator drop this pin."
   final int ts;
   /// Operator callsign of the publisher. `None` when the publisher
@@ -629,6 +629,174 @@ class NodeConfig {
 
   @override
   int get hashCode => Object.hash(appId, sharedKey, bindAddress, storagePath, transport);
+}
+
+/// Node information for display
+class NodeInfo {
+  const NodeInfo({
+    /// Unique node identifier
+    required this.id,
+    /// Node type (e.g., "UGV", "UAV", "Soldier System")
+    required this.nodeType,
+    /// Node name/callsign
+    required this.name,
+    /// Node status
+    required this.status,
+    /// Node latitude (WGS84)
+    required this.lat,
+    /// Node longitude (WGS84)
+    required this.lon,
+    /// Height above ellipsoid (meters, optional)
+    required this.hae,
+    /// Readiness level (0.0 - 1.0)
+    required this.readiness,
+    /// List of capabilities
+    required this.capabilities,
+    /// Cell membership (if any)
+    required this.cellId,
+    /// Battery / fuel percentage (0–100). Optional because not every
+    /// node has a measurable battery (fixed sensors, pre-lock
+    /// watches), and legacy publishes from pre-2026-05-08 hosts didn't
+    /// carry the field. Wire key: `battery_percent`. See
+    /// [`parse_battery_percent`] for the clamp + None semantics.
+    required this.batteryPercent,
+    /// Heart rate in BPM, sourced from wearable sensors (WearOS watch,
+    /// M5Stack health). Wire key: `heart_rate`. Required to surface a
+    /// vitals indicator on the operator card; absent on node types
+    /// that don't carry a wearable. See [`parse_heart_rate`] for the
+    /// clamp + None semantics.
+    required this.heartRate,
+    /// Last heartbeat timestamp (Unix millis). Defaults to `0` when
+    /// the publisher omits the field, surfaced to the UI as
+    /// "1970-01-01 stale" — different intent from `battery_percent`'s
+    /// `None` ("unknown sensor state"). Don't fold this into the same
+    /// `Option<T>` shape: a missing heartbeat *is* a stale-record
+    /// signal, not absence-of-data, and the node-overlay code uses
+    /// the time delta directly without a None-check branch.
+    required this.lastHeartbeat,
+  });
+
+  /// Unique node identifier
+  final String id;
+  /// Node type (e.g., "UGV", "UAV", "Soldier System")
+  final String nodeType;
+  /// Node name/callsign
+  final String name;
+  /// Node status
+  final NodeStatus status;
+  /// Node latitude (WGS84)
+  final double lat;
+  /// Node longitude (WGS84)
+  final double lon;
+  /// Height above ellipsoid (meters, optional)
+  final double? hae;
+  /// Readiness level (0.0 - 1.0)
+  final double readiness;
+  /// List of capabilities
+  final List<String> capabilities;
+  /// Cell membership (if any)
+  final String? cellId;
+  /// Battery / fuel percentage (0–100). Optional because not every
+  /// node has a measurable battery (fixed sensors, pre-lock
+  /// watches), and legacy publishes from pre-2026-05-08 hosts didn't
+  /// carry the field. Wire key: `battery_percent`. See
+  /// [`parse_battery_percent`] for the clamp + None semantics.
+  final int? batteryPercent;
+  /// Heart rate in BPM, sourced from wearable sensors (WearOS watch,
+  /// M5Stack health). Wire key: `heart_rate`. Required to surface a
+  /// vitals indicator on the operator card; absent on node types
+  /// that don't carry a wearable. See [`parse_heart_rate`] for the
+  /// clamp + None semantics.
+  final int? heartRate;
+  /// Last heartbeat timestamp (Unix millis). Defaults to `0` when
+  /// the publisher omits the field, surfaced to the UI as
+  /// "1970-01-01 stale" — different intent from `battery_percent`'s
+  /// `None` ("unknown sensor state"). Don't fold this into the same
+  /// `Option<T>` shape: a missing heartbeat *is* a stale-record
+  /// signal, not absence-of-data, and the node-overlay code uses
+  /// the time delta directly without a None-check branch.
+  final int lastHeartbeat;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': this.id,
+      'nodeType': this.nodeType,
+      'name': this.name,
+      'status': NodeStatusFfiCodec.encode(this.status),
+      'lat': this.lat,
+      'lon': this.lon,
+      'hae': this.hae,
+      'readiness': this.readiness,
+      'capabilities': this.capabilities,
+      'cellId': this.cellId,
+      'batteryPercent': this.batteryPercent,
+      'heartRate': this.heartRate,
+      'lastHeartbeat': this.lastHeartbeat,
+    };
+  }
+
+  factory NodeInfo.fromJson(Map<String, dynamic> json) {
+    return NodeInfo(
+      id: json['id'] as String,
+      nodeType: json['nodeType'] as String,
+      name: json['name'] as String,
+      status: NodeStatusFfiCodec.decode(json['status'] as String),
+      lat: (json['lat'] as num).toDouble(),
+      lon: (json['lon'] as num).toDouble(),
+      hae: json['hae'] == null ? null : (json['hae'] as num).toDouble(),
+      readiness: (json['readiness'] as num).toDouble(),
+      capabilities: (json['capabilities'] as List).map((item) => item as String).toList(),
+      cellId: json['cellId'] == null ? null : json['cellId'] as String,
+      batteryPercent: json['batteryPercent'] == null ? null : (json['batteryPercent'] as num).toInt(),
+      heartRate: json['heartRate'] == null ? null : (json['heartRate'] as num).toInt(),
+      lastHeartbeat: (json['lastHeartbeat'] as num).toInt(),
+    );
+  }
+
+  NodeInfo copyWith({
+    String? id,
+    String? nodeType,
+    String? name,
+    NodeStatus? status,
+    double? lat,
+    double? lon,
+    Object? hae = _sentinel,
+    double? readiness,
+    List<String>? capabilities,
+    Object? cellId = _sentinel,
+    Object? batteryPercent = _sentinel,
+    Object? heartRate = _sentinel,
+    int? lastHeartbeat,
+  }) {
+    return NodeInfo(
+      id: id ?? this.id,
+      nodeType: nodeType ?? this.nodeType,
+      name: name ?? this.name,
+      status: status ?? this.status,
+      lat: lat ?? this.lat,
+      lon: lon ?? this.lon,
+      hae: hae == _sentinel ? this.hae : hae as double?,
+      readiness: readiness ?? this.readiness,
+      capabilities: capabilities ?? this.capabilities,
+      cellId: cellId == _sentinel ? this.cellId : cellId as String?,
+      batteryPercent: batteryPercent == _sentinel ? this.batteryPercent : batteryPercent as int?,
+      heartRate: heartRate == _sentinel ? this.heartRate : heartRate as int?,
+      lastHeartbeat: lastHeartbeat ?? this.lastHeartbeat,
+    );
+  }
+
+  @override
+  String toString() {
+    return 'NodeInfo(id: $id, nodeType: $nodeType, name: $name, status: $status, lat: $lat, lon: $lon, hae: $hae, readiness: $readiness, capabilities: $capabilities, cellId: $cellId, batteryPercent: $batteryPercent, heartRate: $heartRate, lastHeartbeat: $lastHeartbeat)';
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NodeInfo && id == other.id && nodeType == other.nodeType && name == other.name && status == other.status && lat == other.lat && lon == other.lon && hae == other.hae && readiness == other.readiness && capabilities == other.capabilities && cellId == other.cellId && batteryPercent == other.batteryPercent && heartRate == other.heartRate && lastHeartbeat == other.lastHeartbeat;
+
+  @override
+  int get hashCode => Object.hash(id, nodeType, name, status, lat, lon, hae, readiness, capabilities, cellId, batteryPercent, heartRate, lastHeartbeat);
 }
 
 /// Encoded BLE outbound frame produced by the `BleTranslator` fan-out.
@@ -831,174 +999,6 @@ class PeerTransportState {
   int get hashCode => Object.hash(peerId, links);
 }
 
-/// Platform information for display
-class PlatformInfo {
-  const PlatformInfo({
-    /// Unique platform identifier
-    required this.id,
-    /// Platform type (e.g., "UGV", "UAV", "Soldier System")
-    required this.platformType,
-    /// Platform name/callsign
-    required this.name,
-    /// Platform status
-    required this.status,
-    /// Platform latitude (WGS84)
-    required this.lat,
-    /// Platform longitude (WGS84)
-    required this.lon,
-    /// Height above ellipsoid (meters, optional)
-    required this.hae,
-    /// Readiness level (0.0 - 1.0)
-    required this.readiness,
-    /// List of capabilities
-    required this.capabilities,
-    /// Cell membership (if any)
-    required this.cellId,
-    /// Battery / fuel percentage (0–100). Optional because not every
-    /// platform has a measurable battery (fixed sensors, pre-lock
-    /// watches), and legacy publishes from pre-2026-05-08 hosts didn't
-    /// carry the field. Wire key: `battery_percent`. See
-    /// [`parse_battery_percent`] for the clamp + None semantics.
-    required this.batteryPercent,
-    /// Heart rate in BPM, sourced from wearable sensors (WearOS watch,
-    /// M5Stack health). Wire key: `heart_rate`. Required to surface a
-    /// vitals indicator on the operator card; absent on platform types
-    /// that don't carry a wearable. See [`parse_heart_rate`] for the
-    /// clamp + None semantics.
-    required this.heartRate,
-    /// Last heartbeat timestamp (Unix millis). Defaults to `0` when
-    /// the publisher omits the field, surfaced to the UI as
-    /// "1970-01-01 stale" — different intent from `battery_percent`'s
-    /// `None` ("unknown sensor state"). Don't fold this into the same
-    /// `Option<T>` shape: a missing heartbeat *is* a stale-record
-    /// signal, not absence-of-data, and the platform-overlay code uses
-    /// the time delta directly without a None-check branch.
-    required this.lastHeartbeat,
-  });
-
-  /// Unique platform identifier
-  final String id;
-  /// Platform type (e.g., "UGV", "UAV", "Soldier System")
-  final String platformType;
-  /// Platform name/callsign
-  final String name;
-  /// Platform status
-  final PlatformStatus status;
-  /// Platform latitude (WGS84)
-  final double lat;
-  /// Platform longitude (WGS84)
-  final double lon;
-  /// Height above ellipsoid (meters, optional)
-  final double? hae;
-  /// Readiness level (0.0 - 1.0)
-  final double readiness;
-  /// List of capabilities
-  final List<String> capabilities;
-  /// Cell membership (if any)
-  final String? cellId;
-  /// Battery / fuel percentage (0–100). Optional because not every
-  /// platform has a measurable battery (fixed sensors, pre-lock
-  /// watches), and legacy publishes from pre-2026-05-08 hosts didn't
-  /// carry the field. Wire key: `battery_percent`. See
-  /// [`parse_battery_percent`] for the clamp + None semantics.
-  final int? batteryPercent;
-  /// Heart rate in BPM, sourced from wearable sensors (WearOS watch,
-  /// M5Stack health). Wire key: `heart_rate`. Required to surface a
-  /// vitals indicator on the operator card; absent on platform types
-  /// that don't carry a wearable. See [`parse_heart_rate`] for the
-  /// clamp + None semantics.
-  final int? heartRate;
-  /// Last heartbeat timestamp (Unix millis). Defaults to `0` when
-  /// the publisher omits the field, surfaced to the UI as
-  /// "1970-01-01 stale" — different intent from `battery_percent`'s
-  /// `None` ("unknown sensor state"). Don't fold this into the same
-  /// `Option<T>` shape: a missing heartbeat *is* a stale-record
-  /// signal, not absence-of-data, and the platform-overlay code uses
-  /// the time delta directly without a None-check branch.
-  final int lastHeartbeat;
-
-  Map<String, dynamic> toJson() {
-    return {
-      'id': this.id,
-      'platformType': this.platformType,
-      'name': this.name,
-      'status': PlatformStatusFfiCodec.encode(this.status),
-      'lat': this.lat,
-      'lon': this.lon,
-      'hae': this.hae,
-      'readiness': this.readiness,
-      'capabilities': this.capabilities,
-      'cellId': this.cellId,
-      'batteryPercent': this.batteryPercent,
-      'heartRate': this.heartRate,
-      'lastHeartbeat': this.lastHeartbeat,
-    };
-  }
-
-  factory PlatformInfo.fromJson(Map<String, dynamic> json) {
-    return PlatformInfo(
-      id: json['id'] as String,
-      platformType: json['platformType'] as String,
-      name: json['name'] as String,
-      status: PlatformStatusFfiCodec.decode(json['status'] as String),
-      lat: (json['lat'] as num).toDouble(),
-      lon: (json['lon'] as num).toDouble(),
-      hae: json['hae'] == null ? null : (json['hae'] as num).toDouble(),
-      readiness: (json['readiness'] as num).toDouble(),
-      capabilities: (json['capabilities'] as List).map((item) => item as String).toList(),
-      cellId: json['cellId'] == null ? null : json['cellId'] as String,
-      batteryPercent: json['batteryPercent'] == null ? null : (json['batteryPercent'] as num).toInt(),
-      heartRate: json['heartRate'] == null ? null : (json['heartRate'] as num).toInt(),
-      lastHeartbeat: (json['lastHeartbeat'] as num).toInt(),
-    );
-  }
-
-  PlatformInfo copyWith({
-    String? id,
-    String? platformType,
-    String? name,
-    PlatformStatus? status,
-    double? lat,
-    double? lon,
-    Object? hae = _sentinel,
-    double? readiness,
-    List<String>? capabilities,
-    Object? cellId = _sentinel,
-    Object? batteryPercent = _sentinel,
-    Object? heartRate = _sentinel,
-    int? lastHeartbeat,
-  }) {
-    return PlatformInfo(
-      id: id ?? this.id,
-      platformType: platformType ?? this.platformType,
-      name: name ?? this.name,
-      status: status ?? this.status,
-      lat: lat ?? this.lat,
-      lon: lon ?? this.lon,
-      hae: hae == _sentinel ? this.hae : hae as double?,
-      readiness: readiness ?? this.readiness,
-      capabilities: capabilities ?? this.capabilities,
-      cellId: cellId == _sentinel ? this.cellId : cellId as String?,
-      batteryPercent: batteryPercent == _sentinel ? this.batteryPercent : batteryPercent as int?,
-      heartRate: heartRate == _sentinel ? this.heartRate : heartRate as int?,
-      lastHeartbeat: lastHeartbeat ?? this.lastHeartbeat,
-    );
-  }
-
-  @override
-  String toString() {
-    return 'PlatformInfo(id: $id, platformType: $platformType, name: $name, status: $status, lat: $lat, lon: $lon, hae: $hae, readiness: $readiness, capabilities: $capabilities, cellId: $cellId, batteryPercent: $batteryPercent, heartRate: $heartRate, lastHeartbeat: $lastHeartbeat)';
-  }
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is PlatformInfo && id == other.id && platformType == other.platformType && name == other.name && status == other.status && lat == other.lat && lon == other.lon && hae == other.hae && readiness == other.readiness && capabilities == other.capabilities && cellId == other.cellId && batteryPercent == other.batteryPercent && heartRate == other.heartRate && lastHeartbeat == other.lastHeartbeat;
-
-  @override
-  int get hashCode => Object.hash(id, platformType, name, status, lat, lon, hae, readiness, capabilities, cellId, batteryPercent, heartRate, lastHeartbeat);
-}
-
 /// Geographic position for FFI
 class Position {
   const Position({
@@ -1132,8 +1132,8 @@ class TrackData {
   const TrackData({
     /// Unique track identifier
     required this.trackId,
-    /// Source platform ID
-    required this.sourcePlatform,
+    /// Source node ID
+    required this.sourceNode,
     /// Geographic position
     required this.position,
     /// Optional velocity
@@ -1150,8 +1150,8 @@ class TrackData {
 
   /// Unique track identifier
   final String trackId;
-  /// Source platform ID
-  final String sourcePlatform;
+  /// Source node ID
+  final String sourceNode;
   /// Geographic position
   final Position position;
   /// Optional velocity
@@ -1168,7 +1168,7 @@ class TrackData {
   Map<String, dynamic> toJson() {
     return {
       'trackId': this.trackId,
-      'sourcePlatform': this.sourcePlatform,
+      'sourceNode': this.sourceNode,
       'position': this.position.toJson(),
       'velocity': this.velocity == null ? null : (() { final __tmp = this.velocity!; return __tmp.toJson(); })(),
       'classification': this.classification,
@@ -1181,7 +1181,7 @@ class TrackData {
   factory TrackData.fromJson(Map<String, dynamic> json) {
     return TrackData(
       trackId: json['trackId'] as String,
-      sourcePlatform: json['sourcePlatform'] as String,
+      sourceNode: json['sourceNode'] as String,
       position: Position.fromJson(json['position'] as Map<String, dynamic>),
       velocity: json['velocity'] == null ? null : (() { final __tmp = json['velocity']; return Velocity.fromJson(__tmp as Map<String, dynamic>); })(),
       classification: json['classification'] as String,
@@ -1193,7 +1193,7 @@ class TrackData {
 
   TrackData copyWith({
     String? trackId,
-    String? sourcePlatform,
+    String? sourceNode,
     Position? position,
     Object? velocity = _sentinel,
     String? classification,
@@ -1203,7 +1203,7 @@ class TrackData {
   }) {
     return TrackData(
       trackId: trackId ?? this.trackId,
-      sourcePlatform: sourcePlatform ?? this.sourcePlatform,
+      sourceNode: sourceNode ?? this.sourceNode,
       position: position ?? this.position,
       velocity: velocity == _sentinel ? this.velocity : velocity as Velocity?,
       classification: classification ?? this.classification,
@@ -1215,16 +1215,16 @@ class TrackData {
 
   @override
   String toString() {
-    return 'TrackData(trackId: $trackId, sourcePlatform: $sourcePlatform, position: $position, velocity: $velocity, classification: $classification, confidence: $confidence, cellId: $cellId, formationId: $formationId)';
+    return 'TrackData(trackId: $trackId, sourceNode: $sourceNode, position: $position, velocity: $velocity, classification: $classification, confidence: $confidence, cellId: $cellId, formationId: $formationId)';
   }
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is TrackData && trackId == other.trackId && sourcePlatform == other.sourcePlatform && position == other.position && velocity == other.velocity && classification == other.classification && confidence == other.confidence && cellId == other.cellId && formationId == other.formationId;
+      other is TrackData && trackId == other.trackId && sourceNode == other.sourceNode && position == other.position && velocity == other.velocity && classification == other.classification && confidence == other.confidence && cellId == other.cellId && formationId == other.formationId;
 
   @override
-  int get hashCode => Object.hash(trackId, sourcePlatform, position, velocity, classification, confidence, cellId, formationId);
+  int get hashCode => Object.hash(trackId, sourceNode, position, velocity, classification, confidence, cellId, formationId);
 }
 
 /// Track information for display
@@ -1232,8 +1232,8 @@ class TrackInfo {
   const TrackInfo({
     /// Unique track identifier
     required this.id,
-    /// Source platform that detected this track
-    required this.sourcePlatform,
+    /// Source node that detected this track
+    required this.sourceNode,
     /// Cell ID that owns this track (if any)
     required this.cellId,
     /// Formation ID (if any)
@@ -1266,8 +1266,8 @@ class TrackInfo {
 
   /// Unique track identifier
   final String id;
-  /// Source platform that detected this track
-  final String sourcePlatform;
+  /// Source node that detected this track
+  final String sourceNode;
   /// Cell ID that owns this track (if any)
   final String? cellId;
   /// Formation ID (if any)
@@ -1300,7 +1300,7 @@ class TrackInfo {
   Map<String, dynamic> toJson() {
     return {
       'id': this.id,
-      'sourcePlatform': this.sourcePlatform,
+      'sourceNode': this.sourceNode,
       'cellId': this.cellId,
       'formationId': this.formationId,
       'lat': this.lat,
@@ -1321,7 +1321,7 @@ class TrackInfo {
   factory TrackInfo.fromJson(Map<String, dynamic> json) {
     return TrackInfo(
       id: json['id'] as String,
-      sourcePlatform: json['sourcePlatform'] as String,
+      sourceNode: json['sourceNode'] as String,
       cellId: json['cellId'] == null ? null : json['cellId'] as String,
       formationId: json['formationId'] == null ? null : json['formationId'] as String,
       lat: (json['lat'] as num).toDouble(),
@@ -1341,7 +1341,7 @@ class TrackInfo {
 
   TrackInfo copyWith({
     String? id,
-    String? sourcePlatform,
+    String? sourceNode,
     Object? cellId = _sentinel,
     Object? formationId = _sentinel,
     double? lat,
@@ -1359,7 +1359,7 @@ class TrackInfo {
   }) {
     return TrackInfo(
       id: id ?? this.id,
-      sourcePlatform: sourcePlatform ?? this.sourcePlatform,
+      sourceNode: sourceNode ?? this.sourceNode,
       cellId: cellId == _sentinel ? this.cellId : cellId as String?,
       formationId: formationId == _sentinel ? this.formationId : formationId as String?,
       lat: lat ?? this.lat,
@@ -1379,16 +1379,16 @@ class TrackInfo {
 
   @override
   String toString() {
-    return 'TrackInfo(id: $id, sourcePlatform: $sourcePlatform, cellId: $cellId, formationId: $formationId, lat: $lat, lon: $lon, hae: $hae, cep: $cep, heading: $heading, speed: $speed, classification: $classification, confidence: $confidence, category: $category, createdAt: $createdAt, lastUpdate: $lastUpdate, attributes: $attributes)';
+    return 'TrackInfo(id: $id, sourceNode: $sourceNode, cellId: $cellId, formationId: $formationId, lat: $lat, lon: $lon, hae: $hae, cep: $cep, heading: $heading, speed: $speed, classification: $classification, confidence: $confidence, category: $category, createdAt: $createdAt, lastUpdate: $lastUpdate, attributes: $attributes)';
   }
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is TrackInfo && id == other.id && sourcePlatform == other.sourcePlatform && cellId == other.cellId && formationId == other.formationId && lat == other.lat && lon == other.lon && hae == other.hae && cep == other.cep && heading == other.heading && speed == other.speed && classification == other.classification && confidence == other.confidence && category == other.category && createdAt == other.createdAt && lastUpdate == other.lastUpdate && attributes == other.attributes;
+      other is TrackInfo && id == other.id && sourceNode == other.sourceNode && cellId == other.cellId && formationId == other.formationId && lat == other.lat && lon == other.lon && hae == other.hae && cep == other.cep && heading == other.heading && speed == other.speed && classification == other.classification && confidence == other.confidence && category == other.category && createdAt == other.createdAt && lastUpdate == other.lastUpdate && attributes == other.attributes;
 
   @override
-  int get hashCode => Object.hash(id, sourcePlatform, cellId, formationId, lat, lon, hae, cep, heading, speed, classification, confidence, category, createdAt, lastUpdate, attributes);
+  int get hashCode => Object.hash(id, sourceNode, cellId, formationId, lat, lon, hae, cep, heading, speed, classification, confidence, category, createdAt, lastUpdate, attributes);
 }
 
 /// Transport configuration for BLE and other transports (ADR-039, #556)
@@ -1685,6 +1685,20 @@ enum CommandStatus {
   cancelled,
 }
 
+/// Node status enumeration
+enum NodeStatus {
+  /// Node is ready
+  ready,
+  /// Node is active
+  active,
+  /// Node has degraded capability
+  degraded,
+  /// Node is offline
+  offline,
+  /// Node is loading/initializing
+  loading,
+}
+
 /// FFI Error type
 sealed class PeatError {
   const PeatError();
@@ -1788,20 +1802,6 @@ final class PeatErrorSyncError extends PeatError {
 
   @override
   int get hashCode => msg.hashCode;
-}
-
-/// Platform status enumeration
-enum PlatformStatus {
-  /// Platform is ready
-  ready,
-  /// Platform is active
-  active,
-  /// Platform has degraded capability
-  degraded,
-  /// Platform is offline
-  offline,
-  /// Platform is loading/initializing
-  loading,
 }
 
 /// Track category enumeration
@@ -1982,6 +1982,27 @@ CommandStatus _decodeCommandStatus(String raw) {
   };
 }
 
+String _encodeNodeStatus(NodeStatus value) {
+  return switch (value) {
+    NodeStatus.ready => 'ready',
+    NodeStatus.active => 'active',
+    NodeStatus.degraded => 'degraded',
+    NodeStatus.offline => 'offline',
+    NodeStatus.loading => 'loading',
+  };
+}
+
+NodeStatus _decodeNodeStatus(String raw) {
+  return switch (raw) {
+    'ready' => NodeStatus.ready,
+    'active' => NodeStatus.active,
+    'degraded' => NodeStatus.degraded,
+    'offline' => NodeStatus.offline,
+    'loading' => NodeStatus.loading,
+    _ => throw StateError('Unknown NodeStatus variant: $raw'),
+  };
+}
+
 String _encodePeatError(PeatError value) {
   if (value is PeatErrorEncodingError) {
     return jsonEncode({
@@ -2043,27 +2064,6 @@ PeatError _decodePeatError(String raw) {
     default:
       throw StateError('Unknown PeatError variant tag: $tag');
   }
-}
-
-String _encodePlatformStatus(PlatformStatus value) {
-  return switch (value) {
-    PlatformStatus.ready => 'ready',
-    PlatformStatus.active => 'active',
-    PlatformStatus.degraded => 'degraded',
-    PlatformStatus.offline => 'offline',
-    PlatformStatus.loading => 'loading',
-  };
-}
-
-PlatformStatus _decodePlatformStatus(String raw) {
-  return switch (raw) {
-    'ready' => PlatformStatus.ready,
-    'active' => PlatformStatus.active,
-    'degraded' => PlatformStatus.degraded,
-    'offline' => PlatformStatus.offline,
-    'loading' => PlatformStatus.loading,
-    _ => throw StateError('Unknown PlatformStatus variant: $raw'),
-  };
 }
 
 String _encodeTrackCategory(TrackCategory value) {
@@ -2212,20 +2212,20 @@ final class CommandStatusFfiCodec {
   static CommandStatus decode(String raw) => _decodeCommandStatus(raw);
 }
 
+final class NodeStatusFfiCodec {
+  const NodeStatusFfiCodec._();
+
+  static String encode(NodeStatus value) => _encodeNodeStatus(value);
+
+  static NodeStatus decode(String raw) => _decodeNodeStatus(raw);
+}
+
 final class PeatErrorFfiCodec {
   const PeatErrorFfiCodec._();
 
   static String encode(PeatError value) => _encodePeatError(value);
 
   static PeatError decode(String raw) => _decodePeatError(raw);
-}
-
-final class PlatformStatusFfiCodec {
-  const PlatformStatusFfiCodec._();
-
-  static String encode(PlatformStatus value) => _encodePlatformStatus(value);
-
-  static PlatformStatus decode(String raw) => _decodePlatformStatus(raw);
 }
 
 final class TrackCategoryFfiCodec {
@@ -2361,7 +2361,7 @@ void _uniffiWriteCellInfo(CellInfo value, _UniFfiBinaryWriter writer) {
   writer.writeString(value.id);
   writer.writeString(value.name);
   _uniffiWriteCellStatus(value.status, writer);
-  writer.writeU32(value.platformCount);
+  writer.writeU32(value.nodeCount);
   writer.writeF64(value.centerLat);
   writer.writeF64(value.centerLon);
   writer.writeI32(value.capabilities.length);
@@ -2400,7 +2400,7 @@ CellInfo _uniffiReadCellInfo(_UniFfiBinaryReader reader) {
     id: reader.readString(),
     name: reader.readString(),
     status: _uniffiReadCellStatus(reader),
-    platformCount: reader.readU32(),
+    nodeCount: reader.readU32(),
     centerLat: reader.readF64(),
     centerLon: reader.readF64(),
     capabilities: (() { final int __len = reader.readI32(); final out = <String>[]; for (var i = 0; i < __len; i++) { out.add(reader.readString()); } return out; })(),
@@ -2596,6 +2596,78 @@ NodeConfig _uniffiDecodeNodeConfig(Uint8List bytes) {
   return value;
 }
 
+void _uniffiWriteNodeInfo(NodeInfo value, _UniFfiBinaryWriter writer) {
+  writer.writeString(value.id);
+  writer.writeString(value.nodeType);
+  writer.writeString(value.name);
+  _uniffiWriteNodeStatus(value.status, writer);
+  writer.writeF64(value.lat);
+  writer.writeF64(value.lon);
+  if (value.hae == null) {
+    writer.writeI8(0);
+  } else {
+    writer.writeI8(1);
+    writer.writeF64(value.hae!);
+  }
+  writer.writeF64(value.readiness);
+  writer.writeI32(value.capabilities.length);
+  for (final item in value.capabilities) {
+    writer.writeString(item);
+  }
+  if (value.cellId == null) {
+    writer.writeI8(0);
+  } else {
+    writer.writeI8(1);
+    writer.writeString(value.cellId!);
+  }
+  if (value.batteryPercent == null) {
+    writer.writeI8(0);
+  } else {
+    writer.writeI8(1);
+    writer.writeI32(value.batteryPercent!);
+  }
+  if (value.heartRate == null) {
+    writer.writeI8(0);
+  } else {
+    writer.writeI8(1);
+    writer.writeI32(value.heartRate!);
+  }
+  writer.writeI64(value.lastHeartbeat);
+}
+
+Uint8List _uniffiEncodeNodeInfo(NodeInfo value) {
+  final writer = _UniFfiBinaryWriter();
+  _uniffiWriteNodeInfo(value, writer);
+  return writer.toBytes();
+}
+
+NodeInfo _uniffiReadNodeInfo(_UniFfiBinaryReader reader) {
+  return NodeInfo(
+    id: reader.readString(),
+    nodeType: reader.readString(),
+    name: reader.readString(),
+    status: _uniffiReadNodeStatus(reader),
+    lat: reader.readF64(),
+    lon: reader.readF64(),
+    hae: (() { final int __tag = reader.readI8(); if (__tag == 0) return null; if (__tag != 1) throw StateError('invalid optional tag: $__tag'); return reader.readF64(); })(),
+    readiness: reader.readF64(),
+    capabilities: (() { final int __len = reader.readI32(); final out = <String>[]; for (var i = 0; i < __len; i++) { out.add(reader.readString()); } return out; })(),
+    cellId: (() { final int __tag = reader.readI8(); if (__tag == 0) return null; if (__tag != 1) throw StateError('invalid optional tag: $__tag'); return reader.readString(); })(),
+    batteryPercent: (() { final int __tag = reader.readI8(); if (__tag == 0) return null; if (__tag != 1) throw StateError('invalid optional tag: $__tag'); return reader.readI32(); })(),
+    heartRate: (() { final int __tag = reader.readI8(); if (__tag == 0) return null; if (__tag != 1) throw StateError('invalid optional tag: $__tag'); return reader.readI32(); })(),
+    lastHeartbeat: reader.readI64(),
+  );
+}
+
+NodeInfo _uniffiDecodeNodeInfo(Uint8List bytes) {
+  final reader = _UniFfiBinaryReader(bytes);
+  final value = _uniffiReadNodeInfo(reader);
+  if (!reader.isDone) {
+    throw StateError('extra bytes remaining while decoding NodeInfo');
+  }
+  return value;
+}
+
 void _uniffiWriteOutboundFrame(OutboundFrame value, _UniFfiBinaryWriter writer) {
   writer.writeString(value.transportId);
   writer.writeString(value.collection);
@@ -2695,78 +2767,6 @@ PeerTransportState _uniffiDecodePeerTransportState(Uint8List bytes) {
   return value;
 }
 
-void _uniffiWritePlatformInfo(PlatformInfo value, _UniFfiBinaryWriter writer) {
-  writer.writeString(value.id);
-  writer.writeString(value.platformType);
-  writer.writeString(value.name);
-  _uniffiWritePlatformStatus(value.status, writer);
-  writer.writeF64(value.lat);
-  writer.writeF64(value.lon);
-  if (value.hae == null) {
-    writer.writeI8(0);
-  } else {
-    writer.writeI8(1);
-    writer.writeF64(value.hae!);
-  }
-  writer.writeF64(value.readiness);
-  writer.writeI32(value.capabilities.length);
-  for (final item in value.capabilities) {
-    writer.writeString(item);
-  }
-  if (value.cellId == null) {
-    writer.writeI8(0);
-  } else {
-    writer.writeI8(1);
-    writer.writeString(value.cellId!);
-  }
-  if (value.batteryPercent == null) {
-    writer.writeI8(0);
-  } else {
-    writer.writeI8(1);
-    writer.writeI32(value.batteryPercent!);
-  }
-  if (value.heartRate == null) {
-    writer.writeI8(0);
-  } else {
-    writer.writeI8(1);
-    writer.writeI32(value.heartRate!);
-  }
-  writer.writeI64(value.lastHeartbeat);
-}
-
-Uint8List _uniffiEncodePlatformInfo(PlatformInfo value) {
-  final writer = _UniFfiBinaryWriter();
-  _uniffiWritePlatformInfo(value, writer);
-  return writer.toBytes();
-}
-
-PlatformInfo _uniffiReadPlatformInfo(_UniFfiBinaryReader reader) {
-  return PlatformInfo(
-    id: reader.readString(),
-    platformType: reader.readString(),
-    name: reader.readString(),
-    status: _uniffiReadPlatformStatus(reader),
-    lat: reader.readF64(),
-    lon: reader.readF64(),
-    hae: (() { final int __tag = reader.readI8(); if (__tag == 0) return null; if (__tag != 1) throw StateError('invalid optional tag: $__tag'); return reader.readF64(); })(),
-    readiness: reader.readF64(),
-    capabilities: (() { final int __len = reader.readI32(); final out = <String>[]; for (var i = 0; i < __len; i++) { out.add(reader.readString()); } return out; })(),
-    cellId: (() { final int __tag = reader.readI8(); if (__tag == 0) return null; if (__tag != 1) throw StateError('invalid optional tag: $__tag'); return reader.readString(); })(),
-    batteryPercent: (() { final int __tag = reader.readI8(); if (__tag == 0) return null; if (__tag != 1) throw StateError('invalid optional tag: $__tag'); return reader.readI32(); })(),
-    heartRate: (() { final int __tag = reader.readI8(); if (__tag == 0) return null; if (__tag != 1) throw StateError('invalid optional tag: $__tag'); return reader.readI32(); })(),
-    lastHeartbeat: reader.readI64(),
-  );
-}
-
-PlatformInfo _uniffiDecodePlatformInfo(Uint8List bytes) {
-  final reader = _UniFfiBinaryReader(bytes);
-  final value = _uniffiReadPlatformInfo(reader);
-  if (!reader.isDone) {
-    throw StateError('extra bytes remaining while decoding PlatformInfo');
-  }
-  return value;
-}
-
 void _uniffiWritePosition(Position value, _UniFfiBinaryWriter writer) {
   writer.writeF64(value.lat);
   writer.writeF64(value.lon);
@@ -2834,7 +2834,7 @@ SyncStats _uniffiDecodeSyncStats(Uint8List bytes) {
 
 void _uniffiWriteTrackData(TrackData value, _UniFfiBinaryWriter writer) {
   writer.writeString(value.trackId);
-  writer.writeString(value.sourcePlatform);
+  writer.writeString(value.sourceNode);
   _uniffiWritePosition(value.position, writer);
   if (value.velocity == null) {
     writer.writeI8(0);
@@ -2867,7 +2867,7 @@ Uint8List _uniffiEncodeTrackData(TrackData value) {
 TrackData _uniffiReadTrackData(_UniFfiBinaryReader reader) {
   return TrackData(
     trackId: reader.readString(),
-    sourcePlatform: reader.readString(),
+    sourceNode: reader.readString(),
     position: _uniffiReadPosition(reader),
     velocity: (() { final int __tag = reader.readI8(); if (__tag == 0) return null; if (__tag != 1) throw StateError('invalid optional tag: $__tag'); return _uniffiReadVelocity(reader); })(),
     classification: reader.readString(),
@@ -2888,7 +2888,7 @@ TrackData _uniffiDecodeTrackData(Uint8List bytes) {
 
 void _uniffiWriteTrackInfo(TrackInfo value, _UniFfiBinaryWriter writer) {
   writer.writeString(value.id);
-  writer.writeString(value.sourcePlatform);
+  writer.writeString(value.sourceNode);
   if (value.cellId == null) {
     writer.writeI8(0);
   } else {
@@ -2948,7 +2948,7 @@ Uint8List _uniffiEncodeTrackInfo(TrackInfo value) {
 TrackInfo _uniffiReadTrackInfo(_UniFfiBinaryReader reader) {
   return TrackInfo(
     id: reader.readString(),
-    sourcePlatform: reader.readString(),
+    sourceNode: reader.readString(),
     cellId: (() { final int __tag = reader.readI8(); if (__tag == 0) return null; if (__tag != 1) throw StateError('invalid optional tag: $__tag'); return reader.readString(); })(),
     formationId: (() { final int __tag = reader.readI8(); if (__tag == 0) return null; if (__tag != 1) throw StateError('invalid optional tag: $__tag'); return reader.readString(); })(),
     lat: reader.readF64(),
@@ -3235,6 +3235,50 @@ CommandStatus _uniffiDecodeCommandStatus(Uint8List bytes) {
   return value;
 }
 
+void _uniffiWriteNodeStatus(NodeStatus value, _UniFfiBinaryWriter writer) {
+  final int tag = switch (value) {
+    NodeStatus.ready => 1,
+    NodeStatus.active => 2,
+    NodeStatus.degraded => 3,
+    NodeStatus.offline => 4,
+    NodeStatus.loading => 5,
+  };
+  writer.writeI32(tag);
+}
+
+Uint8List _uniffiEncodeNodeStatus(NodeStatus value) {
+  final writer = _UniFfiBinaryWriter();
+  _uniffiWriteNodeStatus(value, writer);
+  return writer.toBytes();
+}
+
+NodeStatus _uniffiReadNodeStatus(_UniFfiBinaryReader reader) {
+  final int tag = reader.readI32();
+  switch (tag) {
+    case 1:
+      return NodeStatus.ready;
+    case 2:
+      return NodeStatus.active;
+    case 3:
+      return NodeStatus.degraded;
+    case 4:
+      return NodeStatus.offline;
+    case 5:
+      return NodeStatus.loading;
+    default:
+      throw StateError('Unknown NodeStatus variant tag: $tag');
+  }
+}
+
+NodeStatus _uniffiDecodeNodeStatus(Uint8List bytes) {
+  final reader = _UniFfiBinaryReader(bytes);
+  final value = _uniffiReadNodeStatus(reader);
+  if (!reader.isDone) {
+    throw StateError('extra bytes remaining while decoding NodeStatus');
+  }
+  return value;
+}
+
 void _uniffiWritePeatError(PeatError value, _UniFfiBinaryWriter writer) {
   if (value is PeatErrorEncodingError) {
     writer.writeI32(1);
@@ -3300,50 +3344,6 @@ PeatError _uniffiDecodePeatError(Uint8List bytes) {
   final value = _uniffiReadPeatError(reader);
   if (!reader.isDone) {
     throw StateError('extra bytes remaining while decoding PeatError');
-  }
-  return value;
-}
-
-void _uniffiWritePlatformStatus(PlatformStatus value, _UniFfiBinaryWriter writer) {
-  final int tag = switch (value) {
-    PlatformStatus.ready => 1,
-    PlatformStatus.active => 2,
-    PlatformStatus.degraded => 3,
-    PlatformStatus.offline => 4,
-    PlatformStatus.loading => 5,
-  };
-  writer.writeI32(tag);
-}
-
-Uint8List _uniffiEncodePlatformStatus(PlatformStatus value) {
-  final writer = _UniFfiBinaryWriter();
-  _uniffiWritePlatformStatus(value, writer);
-  return writer.toBytes();
-}
-
-PlatformStatus _uniffiReadPlatformStatus(_UniFfiBinaryReader reader) {
-  final int tag = reader.readI32();
-  switch (tag) {
-    case 1:
-      return PlatformStatus.ready;
-    case 2:
-      return PlatformStatus.active;
-    case 3:
-      return PlatformStatus.degraded;
-    case 4:
-      return PlatformStatus.offline;
-    case 5:
-      return PlatformStatus.loading;
-    default:
-      throw StateError('Unknown PlatformStatus variant tag: $tag');
-  }
-}
-
-PlatformStatus _uniffiDecodePlatformStatus(Uint8List bytes) {
-  final reader = _UniFfiBinaryReader(bytes);
-  final value = _uniffiReadPlatformStatus(reader);
-  if (!reader.isDone) {
-    throw StateError('extra bytes remaining while decoding PlatformStatus');
   }
   return value;
 }
@@ -3817,15 +3817,15 @@ class PeatFfiFfi {
     if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_get_markers != 54187) {
       throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_get_markers`: expected 54187, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_get_markers');
     }
-    final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_get_platforms;
+    final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_get_nodes;
     try {
-      final int Function() checksumFn = lib.lookupFunction<ffi.Uint16 Function(), int Function()>('uniffi_peat_ffi_checksum_method_peatnode_get_platforms');
-      _checksum_uniffi_peat_ffi_checksum_method_peatnode_get_platforms = checksumFn();
+      final int Function() checksumFn = lib.lookupFunction<ffi.Uint16 Function(), int Function()>('uniffi_peat_ffi_checksum_method_peatnode_get_nodes');
+      _checksum_uniffi_peat_ffi_checksum_method_peatnode_get_nodes = checksumFn();
     } catch (err) {
-      throw StateError('Missing or invalid UniFFI checksum symbol `uniffi_peat_ffi_checksum_method_peatnode_get_platforms`: $err');
+      throw StateError('Missing or invalid UniFFI checksum symbol `uniffi_peat_ffi_checksum_method_peatnode_get_nodes`: $err');
     }
-    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_get_platforms != 48733) {
-      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_get_platforms`: expected 48733, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_get_platforms');
+    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_get_nodes != 5041) {
+      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_get_nodes`: expected 5041, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_get_nodes');
     }
     final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_get_track;
     try {
@@ -3947,15 +3947,15 @@ class PeatFfiFfi {
     if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_put_marker != 2900) {
       throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_put_marker`: expected 2900, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_put_marker');
     }
-    final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_put_platform;
+    final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_put_node;
     try {
-      final int Function() checksumFn = lib.lookupFunction<ffi.Uint16 Function(), int Function()>('uniffi_peat_ffi_checksum_method_peatnode_put_platform');
-      _checksum_uniffi_peat_ffi_checksum_method_peatnode_put_platform = checksumFn();
+      final int Function() checksumFn = lib.lookupFunction<ffi.Uint16 Function(), int Function()>('uniffi_peat_ffi_checksum_method_peatnode_put_node');
+      _checksum_uniffi_peat_ffi_checksum_method_peatnode_put_node = checksumFn();
     } catch (err) {
-      throw StateError('Missing or invalid UniFFI checksum symbol `uniffi_peat_ffi_checksum_method_peatnode_put_platform`: $err');
+      throw StateError('Missing or invalid UniFFI checksum symbol `uniffi_peat_ffi_checksum_method_peatnode_put_node`: $err');
     }
-    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_put_platform != 59302) {
-      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_put_platform`: expected 59302, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_put_platform');
+    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_put_node != 17446) {
+      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_put_node`: expected 17446, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_put_node');
     }
     final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_put_track;
     try {
@@ -3984,8 +3984,8 @@ class PeatFfiFfi {
     } catch (err) {
       throw StateError('Missing or invalid UniFFI checksum symbol `uniffi_peat_ffi_checksum_method_peatnode_start_outbound_frames`: $err');
     }
-    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_start_outbound_frames != 41963) {
-      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_start_outbound_frames`: expected 41963, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_start_outbound_frames');
+    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_start_outbound_frames != 1089) {
+      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_start_outbound_frames`: expected 1089, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_start_outbound_frames');
     }
     final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_start_sync;
     try {
@@ -4004,8 +4004,8 @@ class PeatFfiFfi {
     } catch (err) {
       throw StateError('Missing or invalid UniFFI checksum symbol `uniffi_peat_ffi_checksum_method_peatnode_stop_outbound_frames`: $err');
     }
-    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_stop_outbound_frames != 39826) {
-      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_stop_outbound_frames`: expected 39826, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_stop_outbound_frames');
+    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_stop_outbound_frames != 12706) {
+      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_stop_outbound_frames`: expected 12706, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_stop_outbound_frames');
     }
     final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_stop_sync;
     try {
@@ -4034,8 +4034,8 @@ class PeatFfiFfi {
     } catch (err) {
       throw StateError('Missing or invalid UniFFI checksum symbol `uniffi_peat_ffi_checksum_method_peatnode_subscribe_poll`: $err');
     }
-    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_subscribe_poll != 63073) {
-      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_subscribe_poll`: expected 63073, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_subscribe_poll');
+    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_subscribe_poll != 13410) {
+      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_subscribe_poll`: expected 13410, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_subscribe_poll');
     }
     final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_sync_document;
     try {
@@ -4189,7 +4189,7 @@ class PeatFfiFfi {
         }
         throw StateError('UniFFI ffibuffer call failed with status $statusCode');
       }
-      return PeatNodeFfiCodec.lift((returnBuf + 0).ref.u64);
+      return (returnBuf + 0).ref.u64;
     } finally {
       for (final ptr in foreignArgPtrs) {
         if (ptr != ffi.nullptr) {
@@ -5527,9 +5527,9 @@ class PeatFfiFfi {
     }
   }
 
-  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeGetPlatformsFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_get_platforms');
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeGetNodesFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_get_nodes');
 
-  List<PlatformInfo> peatNodeInvokeGetPlatforms(int handle) {
+  List<NodeInfo> peatNodeInvokeGetNodes(int handle) {
     final ffi.Pointer<_UniFfiFfiBufferElement> argBuf = calloc<_UniFfiFfiBufferElement>(1);
     final ffi.Pointer<_UniFfiFfiBufferElement> returnBuf = calloc<_UniFfiFfiBufferElement>(7);
     final foreignArgPtrs = <ffi.Pointer<ffi.Uint8>>[];
@@ -5553,7 +5553,7 @@ class PeatFfiFfi {
         }
       }
       (argBuf + 0).ref.u64 = clonedHandle;
-      _peatNodeGetPlatformsFfiBuffer(argBuf, returnBuf);
+      _peatNodeGetNodesFfiBuffer(argBuf, returnBuf);
       final int statusCode = (returnBuf + 3).ref.i8;
       if (statusCode != _uniFfiRustCallStatusSuccess) {
         final ffi.Pointer<_UniFfiRustBuffer> errBufPtr = calloc<_UniFfiRustBuffer>();
@@ -5568,7 +5568,7 @@ class PeatFfiFfi {
         }
         throw StateError('UniFFI ffibuffer call failed with status $statusCode');
       }
-      throw UnsupportedError('runtime invocation for this UniFFI ABI (RustCallStatus out-arg) is not implemented yet (get_platforms)');
+      throw UnsupportedError('runtime invocation for this UniFFI ABI (RustCallStatus out-arg) is not implemented yet (get_nodes)');
     } finally {
       for (final ptr in foreignArgPtrs) {
         if (ptr != ffi.nullptr) {
@@ -6734,9 +6734,9 @@ class PeatFfiFfi {
     }
   }
 
-  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodePutPlatformFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_put_platform');
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodePutNodeFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_put_node');
 
-  void peatNodeInvokePutPlatform(int handle, PlatformInfo platform) {
+  void peatNodeInvokePutNode(int handle, NodeInfo node) {
     final ffi.Pointer<_UniFfiFfiBufferElement> argBuf = calloc<_UniFfiFfiBufferElement>(4);
     final ffi.Pointer<_UniFfiFfiBufferElement> returnBuf = calloc<_UniFfiFfiBufferElement>(4);
     final foreignArgPtrs = <ffi.Pointer<ffi.Uint8>>[];
@@ -6760,38 +6760,38 @@ class PeatFfiFfi {
         }
       }
       (argBuf + 0).ref.u64 = clonedHandle;
-      final Uint8List platformBytes = _uniffiEncodePlatformInfo(platform);
-      final ffi.Pointer<ffi.Uint8> platformPtr = platformBytes.isEmpty ? ffi.nullptr : calloc<ffi.Uint8>(platformBytes.length);
-      if (platformBytes.isNotEmpty) { platformPtr.asTypedList(platformBytes.length).setAll(0, platformBytes); }
-      foreignArgPtrs.add(platformPtr);
-      final ffi.Pointer<_UniFfiRustCallStatus> platformFromBytesStatusPtr = calloc<_UniFfiRustCallStatus>();
-      platformFromBytesStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
-      platformFromBytesStatusPtr.ref.errorBuf
+      final Uint8List nodeBytes = _uniffiEncodeNodeInfo(node);
+      final ffi.Pointer<ffi.Uint8> nodePtr = nodeBytes.isEmpty ? ffi.nullptr : calloc<ffi.Uint8>(nodeBytes.length);
+      if (nodeBytes.isNotEmpty) { nodePtr.asTypedList(nodeBytes.length).setAll(0, nodeBytes); }
+      foreignArgPtrs.add(nodePtr);
+      final ffi.Pointer<_UniFfiRustCallStatus> nodeFromBytesStatusPtr = calloc<_UniFfiRustCallStatus>();
+      nodeFromBytesStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
+      nodeFromBytesStatusPtr.ref.errorBuf
         ..capacity = 0
         ..len = 0
         ..data = ffi.nullptr;
-      final ffi.Pointer<_UniFfiForeignBytes> platformForeignPtr = calloc<_UniFfiForeignBytes>();
-      platformForeignPtr.ref
-        ..len = platformBytes.length
-        ..data = platformPtr;
-      final _UniFfiRustBuffer platformRustBuffer = _uniFfiRustBufferFromBytes(platformForeignPtr.ref, platformFromBytesStatusPtr);
-      calloc.free(platformForeignPtr);
-      final int platformFromBytesCode = platformFromBytesStatusPtr.ref.code;
-      final _UniFfiRustBuffer platformFromBytesErrBuf = platformFromBytesStatusPtr.ref.errorBuf;
-      calloc.free(platformFromBytesStatusPtr);
-      if (platformFromBytesCode != _uniFfiRustCallStatusSuccess) {
-        final ffi.Pointer<_UniFfiRustBuffer> platformFromBytesErrBufPtr = calloc<_UniFfiRustBuffer>();
-        platformFromBytesErrBufPtr.ref
-          ..capacity = platformFromBytesErrBuf.capacity
-          ..len = platformFromBytesErrBuf.len
-          ..data = platformFromBytesErrBuf.data;
-        rustRetBufferPtrs.add(platformFromBytesErrBufPtr);
-        throw StateError('UniFFI rustbuffer_from_bytes failed with status $platformFromBytesCode');
+      final ffi.Pointer<_UniFfiForeignBytes> nodeForeignPtr = calloc<_UniFfiForeignBytes>();
+      nodeForeignPtr.ref
+        ..len = nodeBytes.length
+        ..data = nodePtr;
+      final _UniFfiRustBuffer nodeRustBuffer = _uniFfiRustBufferFromBytes(nodeForeignPtr.ref, nodeFromBytesStatusPtr);
+      calloc.free(nodeForeignPtr);
+      final int nodeFromBytesCode = nodeFromBytesStatusPtr.ref.code;
+      final _UniFfiRustBuffer nodeFromBytesErrBuf = nodeFromBytesStatusPtr.ref.errorBuf;
+      calloc.free(nodeFromBytesStatusPtr);
+      if (nodeFromBytesCode != _uniFfiRustCallStatusSuccess) {
+        final ffi.Pointer<_UniFfiRustBuffer> nodeFromBytesErrBufPtr = calloc<_UniFfiRustBuffer>();
+        nodeFromBytesErrBufPtr.ref
+          ..capacity = nodeFromBytesErrBuf.capacity
+          ..len = nodeFromBytesErrBuf.len
+          ..data = nodeFromBytesErrBuf.data;
+        rustRetBufferPtrs.add(nodeFromBytesErrBufPtr);
+        throw StateError('UniFFI rustbuffer_from_bytes failed with status $nodeFromBytesCode');
       }
-      (argBuf + 1).ref.u64 = platformRustBuffer.capacity;
-      (argBuf + 2).ref.u64 = platformRustBuffer.len;
-      (argBuf + 3).ref.ptr = platformRustBuffer.data.cast<ffi.Void>();
-      _peatNodePutPlatformFfiBuffer(argBuf, returnBuf);
+      (argBuf + 1).ref.u64 = nodeRustBuffer.capacity;
+      (argBuf + 2).ref.u64 = nodeRustBuffer.len;
+      (argBuf + 3).ref.ptr = nodeRustBuffer.data.cast<ffi.Void>();
+      _peatNodePutNodeFfiBuffer(argBuf, returnBuf);
       final int statusCode = (returnBuf + 0).ref.i8;
       if (statusCode != _uniFfiRustCallStatusSuccess) {
         final ffi.Pointer<_UniFfiRustBuffer> errBufPtr = calloc<_UniFfiRustBuffer>();
@@ -7287,7 +7287,7 @@ class PeatFfiFfi {
         }
       }
       (argBuf + 0).ref.u64 = clonedHandle;
-      (argBuf + 1).ref.u64 = _DocumentCallbackCallbackBridge.instance.register(callback);
+      (argBuf + 1).ref.u64 = callback;
       _peatNodeSubscribeFfiBuffer(argBuf, returnBuf);
       final int statusCode = (returnBuf + 1).ref.i8;
       if (statusCode != _uniFfiRustCallStatusSuccess) {
@@ -7971,10 +7971,10 @@ final class PeatNode {
     return _ffi.peatNodeInvokeGetMarkers(_handle);
   }
 
-  /// Get all platforms from the sync document
-  List<PlatformInfo> getPlatforms() {
+  /// Get all nodes from the sync document
+  List<NodeInfo> getNodes() {
     _ensureOpen();
-    return _ffi.peatNodeInvokeGetPlatforms(_handle);
+    return _ffi.peatNodeInvokeGetNodes(_handle);
   }
 
   /// Get a specific track by ID. Routes through `Node::get` for the
@@ -8098,10 +8098,10 @@ final class PeatNode {
     _ffi.peatNodeInvokePutMarker(_handle, marker);
   }
 
-  /// Store a platform
-  void putPlatform(PlatformInfo platform) {
+  /// Store a node
+  void putNode(NodeInfo node) {
     _ensureOpen();
-    _ffi.peatNodeInvokePutPlatform(_handle, platform);
+    _ffi.peatNodeInvokePutNode(_handle, node);
   }
 
   /// Store a track. Publishes through `Node::publish` so the
@@ -8136,11 +8136,16 @@ final class PeatNode {
   /// Subscribe to outbound BLE frames via a poll queue.
   ///
   /// After calling this, encoded frames produced by the `BleTranslator`
-  /// fan-out accumulate in an internal queue. Call [`poll_outbound_frames`]
-  /// to drain them. Idempotent — a second call while already subscribed
-  /// is a no-op (returns `Ok`).
+  /// fan-out accumulate in an internal unbounded queue. Call
+  /// [`poll_outbound_frames`] frequently to drain it — if the consumer
+  /// pauses polling the queue will grow without bound, one `Vec<u8>`
+  /// payload per BLE frame.
   ///
-  /// Call [`stop_outbound_frames`] to unsubscribe and tear down the fan-out.
+  /// Idempotent — a second call while already subscribed is a no-op
+  /// (returns `Ok`).
+  ///
+  /// Call [`stop_outbound_frames`] to unsubscribe, tear down the fan-out,
+  /// and clear any residual frames from the queue.
   void startOutboundFrames() {
     _ensureOpen();
     _ffi.peatNodeInvokeStartOutboundFrames(_handle);
@@ -8158,8 +8163,11 @@ final class PeatNode {
 
   /// Stop outbound-frame delivery and tear down the BLE fan-out.
   ///
-  /// Drops the `FanoutHandle` (cancels observer tasks) and unregisters
-  /// the BLE translator(s). Idempotent — safe to call when not subscribed.
+  /// Drops the `FanoutHandle` (cancels observer tasks), unregisters the BLE
+  /// translator(s), and clears the outbound queue so that stale frames are
+  /// not delivered after a subsequent [`start_outbound_frames`].
+  ///
+  /// Idempotent — safe to call when not subscribed.
   void stopOutboundFrames() {
     _ensureOpen();
     _ffi.peatNodeInvokeStopOutboundFrames(_handle);
@@ -8194,6 +8202,16 @@ final class PeatNode {
   /// `Timer.periodic`) — no foreign callback interface is required.
   ///
   /// Drop or call [`SubscriptionHandle::cancel`] on the handle to stop.
+  ///
+  /// # Broadcast lag
+  ///
+  /// The underlying channel has a bounded capacity. If `poll_changes` is not
+  /// called frequently enough relative to the document-change rate, the
+  /// broadcast channel will lag and silently drop events — `poll_changes`
+  /// returns a partial set with no indication that events were missed.
+  /// Callers should treat a long gap between `poll_changes` calls (e.g. the
+  /// app was backgrounded) as a signal to trigger a full collection resync
+  /// rather than relying on the change stream alone.
   SubscriptionHandle subscribePoll() {
     _ensureOpen();
     return _ffi.peatNodeInvokeSubscribePoll(_handle);
