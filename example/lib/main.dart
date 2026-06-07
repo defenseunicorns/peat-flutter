@@ -53,8 +53,10 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
       final dir = await getApplicationSupportDirectory();
       final node = PeatFlutterNode.create(NodeConfig(
         appId: 'peat-flutter-example',
-        // Test-only shared key. Replace with a real base64-encoded 32-byte key
-        // generated via: openssl rand -base64 32
+        // Test-only shared key. Replace with a real base64-encoded 32-byte key:
+        //   openssl rand -base64 32
+        // WARNING: all-zeros key → every example instance on the same LAN will
+        // mesh with each other. Fine for local dev; replace before sharing.
         sharedKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
         bindAddress: null,
         storagePath: '${dir.path}/peat',
@@ -111,7 +113,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
   void _startBle() {
     final node = _node;
     if (node == null || _bleRunning) return;
-    // On mobile, mobile Dart owns the radio via flutter_blue_plus:
+    // On mobile, Dart owns the radio via flutter_blue_plus:
     //   1. Add `flutter_blue_plus` to example/pubspec.yaml.
     //   2. Call FlutterBluePlus.scan() and connect to peat peripherals.
     //   3. On each GATT notification, call peat-btle's onBleDataReceived() to
@@ -119,16 +121,20 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
     //   4. Feed postcardBytes to node.ingestInboundFrame(collection, bytes).
     // Outbound frames produced by Rust are received here and must be written
     // as GATT characteristics to connected peripherals.
-    final sub = node.startOutboundFrames().listen((frame) {
-      if (!mounted) return;
-      setState(() => _bleFrameCount++);
-      // TODO: write frame.bytes to the GATT characteristic for frame.transportId
-    });
-    setState(() {
-      _outboundSub = sub;
-      _bleRunning = true;
-      _bleFrameCount = 0;
-    });
+    try {
+      final sub = node.startOutboundFrames().listen((frame) {
+        if (!mounted) return;
+        setState(() => _bleFrameCount++);
+        // TODO: write frame.bytes to the GATT characteristic for frame.transportId
+      });
+      setState(() {
+        _outboundSub = sub;
+        _bleRunning = true;
+        _bleFrameCount = 0;
+      });
+    } catch (e) {
+      setState(() => _error = 'BLE fan-out failed: $e');
+    }
   }
 
   void _stopBle() {

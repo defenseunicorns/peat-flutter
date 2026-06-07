@@ -136,14 +136,16 @@ class PeatFlutterNode {
     final ctrl = StreamController<DocumentChange>.broadcast(
       onCancel: () {
         _changeTimer?.cancel();
-        sub.cancel();
+        // Guard: dispose() may have already cancelled+closed sub synchronously
+        // before this async onCancel fires (broadcast "done" delivery is async).
+        if (!sub.isClosed) sub.cancel();
         sub.close();
       },
     );
     _changeCtrl = ctrl;
 
     _changeTimer = Timer.periodic(pollInterval, (_) {
-      if (ctrl.isClosed) return;
+      if (ctrl.isClosed || sub.isClosed) return;
       for (final c in sub.pollChanges()) {
         ctrl.add(c);
       }
@@ -168,13 +170,14 @@ class PeatFlutterNode {
     final ctrl = StreamController<OutboundFrame>.broadcast(
       onCancel: () {
         _outboundTimer?.cancel();
-        _node.stopOutboundFrames();
+        // Guard: dispose() closes _node before this async onCancel may fire.
+        if (!_node.isClosed) _node.stopOutboundFrames();
       },
     );
     _outboundCtrl = ctrl;
 
     _outboundTimer = Timer.periodic(pollInterval, (_) {
-      if (ctrl.isClosed) return;
+      if (ctrl.isClosed || _node.isClosed) return;
       for (final f in _node.pollOutboundFrames()) {
         ctrl.add(f);
       }

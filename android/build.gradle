@@ -66,6 +66,16 @@ task buildRustAndroid(type: Exec) {
         'build', '--release',
         '-p', 'peat-ffi',
         '--features', 'sync,bluetooth'
+
+    // Teach Gradle when to skip this task (UP-TO-DATE check).
+    // Gradle re-runs only when Rust source or Cargo files change; incremental
+    // Android builds (hot reload, resource changes) skip cargo entirely.
+    inputs.dir("${peatWorkspaceDir}/peat-ffi/src")
+    inputs.files(
+        "${peatWorkspaceDir}/peat-ffi/Cargo.toml",
+        "${peatWorkspaceDir}/Cargo.lock"
+    )
+    outputs.dir("${projectDir}/src/main/jniLibs")
 }
 
 preBuild.dependsOn buildRustAndroid
