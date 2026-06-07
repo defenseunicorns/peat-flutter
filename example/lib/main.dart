@@ -5,7 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:peat_flutter/peat_flutter.dart';
 
-void main() => runApp(const PeatExampleApp());
+void main() {
+  PeatFlutterNode.initialize();
+  runApp(const PeatExampleApp());
+}
 
 class PeatExampleApp extends StatelessWidget {
   const PeatExampleApp({super.key});
@@ -53,7 +56,9 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
         // Test-only shared key. Replace with a real base64-encoded 32-byte key
         // generated via: openssl rand -base64 32
         sharedKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+        bindAddress: null,
         storagePath: '${dir.path}/peat',
+        transport: null,
       ));
       node.startSync();
 

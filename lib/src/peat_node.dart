@@ -1,143 +1,58 @@
 // peat_flutter — Dart facade over the UniFFI-generated peat-ffi bindings.
-//
-// Setup: before this file compiles against the real generated types, run:
-//   just gen-bindings   → generates lib/src/generated/peat_ffi.dart
-//   just gen-proto      → generates lib/src/proto/*.pb.dart
-//
-// After generation:
-//   1. Delete the SCAFFOLD TYPES section below.
-//   2. Uncomment the two imports that follow.
-//   3. Run `dart analyze lib/` to verify.
-
-// import 'generated/peat_ffi.dart';          // uncomment after gen-bindings
-// import 'proto/cap.unified.pb.dart';         // example; import the proto you need
 
 import 'dart:async';
+import 'dart:math';
 import 'dart:typed_data';
+
 import 'package:protobuf/protobuf.dart';
 
-// ===========================================================================
-// SCAFFOLD TYPES — delete and replace with generated import after gen-bindings
-// These names and shapes are derived from the peat-ffi UniFFI surface analysis
-// (Phase 0). Discrepancies will surface as type errors when the generated code
-// is substituted in.
-// ===========================================================================
+import 'generated/peat_ffi.dart';
+import '../peat_flutter.dart' show openPeatFfiLib;
 
-/// Configuration for creating a [PeatFlutterNode].
-/// Maps to peat-ffi's `NodeConfig` UniFFI record.
-class NodeConfig {
-  final String appId;
-  final String sharedKey;
-  final String? bindAddress;
-  final String storagePath;
+export 'generated/peat_ffi.dart'
+    show
+        NodeConfig,
+        TransportConfigFFI,
+        DocumentChange,
+        OutboundFrame,
+        ChangeType,
+        PeerInfo,
+        PeerTransportState;
 
-  const NodeConfig({
-    required this.appId,
-    required this.sharedKey,
-    this.bindAddress,
-    required this.storagePath,
-  });
-}
+final _rng = Random();
 
-/// The kind of document mutation reported by [DocumentChange].
-/// Maps to peat-ffi's `ChangeType` UniFFI enum.
-enum ChangeType { upsert, delete }
-
-/// A document change event received from the mesh.
-/// Maps to peat-ffi's `DocumentChange` UniFFI record.
-class DocumentChange {
-  final String collection;
-  final String docId;
-  final ChangeType changeType;
-
-  const DocumentChange({
-    required this.collection,
-    required this.docId,
-    required this.changeType,
-  });
-}
-
-/// A BLE outbound frame to be handed to the radio.
-/// Maps to peat-ffi's `OutboundFrame` UniFFI record.
-/// [transportId] is `"ble"` (typed 0xB6 frame) or `"ble-lite"` (peat-lite).
-class OutboundFrame {
-  final String transportId;
-  final String collection;
-  final List<int> bytes;
-
-  const OutboundFrame({
-    required this.transportId,
-    required this.collection,
-    required this.bytes,
-  });
-}
-
-/// Error thrown by peat-ffi operations.
-/// Maps to peat-ffi's `PeatError` UniFFI error enum.
-class PeatError implements Exception {
-  final String message;
-  const PeatError(this.message);
-  @override
-  String toString() => 'PeatError: $message';
-}
-
-/// Handle for an active document subscription. Kept alive to receive events.
-/// Maps to peat-ffi's `SubscriptionHandle` UniFFI object.
-abstract class SubscriptionHandle {
-  bool isActive();
-  void cancel();
-
-  /// Drain all pending [DocumentChange] events. Non-blocking.
-  /// Only populated when opened via [subscribePoll]; always empty for
-  /// callback-based subscriptions.
-  List<DocumentChange> pollChanges();
-}
-
-/// Internal bridge to the generated UniFFI `PeatNode` object.
-/// Replace with the generated `PeatNode` from `src/generated/peat_ffi.dart`.
-abstract class _PeatNodeFfi {
-  String nodeId();
-  void startSync();
-  String publishDocument(String collection, String jsonData);
-  String? getDocument(String collection, String docId);
-  List<String> listDocuments(String collection);
-
-  /// Poll-based subscription — no foreign callback needed.
-  SubscriptionHandle subscribePoll();
-
-  void startOutboundFrames();
-  List<OutboundFrame> pollOutboundFrames();
-  void stopOutboundFrames();
-
-  /// Decode [postcardBytes] for [collection] and publish into the mesh.
-  /// Returns the document ID, or null for an unknown/declined frame.
-  String? ingestInboundFrame(String collection, Uint8List postcardBytes);
-}
-
-// ===========================================================================
-// END SCAFFOLD TYPES
-// ===========================================================================
+String _newDocId() =>
+    '${DateTime.now().millisecondsSinceEpoch}-${_rng.nextInt(0xFFFF).toRadixString(16).padLeft(4, '0')}';
 
 /// Idiomatic Dart wrapper around the peat-ffi [PeatNode] UniFFI object.
 ///
-/// Exposes document publish/get and [Stream]-based change + BLE-outbound
-/// subscriptions backed by the poll API added in peat-ffi 0.2.6.
+/// ## Initialization
 ///
-/// Create via [PeatFlutterNode.create]:
+/// Call [PeatFlutterNode.initialize] once at app startup (before [create]):
+/// ```dart
+/// void main() {
+///   PeatFlutterNode.initialize();
+///   runApp(const MyApp());
+/// }
+/// ```
+///
+/// ## Usage
 /// ```dart
 /// final node = PeatFlutterNode.create(NodeConfig(
 ///   appId: 'my-app',
 ///   sharedKey: base64Key,
+///   bindAddress: null,
 ///   storagePath: appDir.path,
+///   transport: null,
 /// ));
 /// node.startSync();
 ///
-/// final sub = node.subscribeChanges();
-/// sub.listen((change) => print('${change.collection}/${change.docId}'));
+/// node.subscribeChanges().listen((change) {
+///   print('${change.collection}/${change.docId}');
+/// });
 /// ```
 class PeatFlutterNode {
-  // Replace `_PeatNodeFfi` with the generated `PeatNode` type after gen-bindings.
-  final _PeatNodeFfi _node;
+  final PeatNode _node;
 
   Timer? _changeTimer;
   Timer? _outboundTimer;
@@ -147,40 +62,41 @@ class PeatFlutterNode {
 
   PeatFlutterNode._(this._node);
 
-  // Replace `_PeatNodeFfi` with `PeatNode` and `_createNode` with
-  // the generated `createNode(config)` after gen-bindings.
+  /// Wire the generated FFI bindings to the platform native library.
+  /// Must be called once before any other [PeatFlutterNode] method.
+  static void initialize() {
+    configureDefaultBindings(dynamicLibrary: openPeatFfiLib());
+  }
+
+  /// Create a new peat mesh node.
   static PeatFlutterNode create(NodeConfig config) {
-    throw UnimplementedError(
-      'Run `just gen-bindings` and replace this stub implementation. '
-      'Substitute: return PeatFlutterNode._(createNode(config));',
-    );
+    return PeatFlutterNode._(createNode(config));
   }
 
   /// This node's hex-encoded unique identifier.
   String get nodeId => _node.nodeId();
 
-  /// Start mesh synchronisation over Iroh QUIC / BLE (desktop) or
-  /// the registered translators (mobile).
+  /// Start mesh synchronisation.
   void startSync() => _node.startSync();
 
-  /// Publish [message] (a proto-generated [GeneratedMessage]) into [collection].
-  ///
-  /// The message is JSON-encoded at the FFI boundary; the mesh stores it as
-  /// an Automerge document. Returns the opaque document ID.
-  String publishMessage(String collection, GeneratedMessage message) {
-    return _node.publishDocument(collection, message.writeToJson());
+  /// Stop mesh synchronisation.
+  void stopSync() => _node.stopSync();
+
+  /// Store [message] (a proto-generated [GeneratedMessage]) into [collection]
+  /// under [docId]. Publishes to connected peers via Automerge sync.
+  void putMessage(String collection, String docId, GeneratedMessage message) {
+    _node.putDocument(collection, docId, message.writeToJson());
   }
 
-  /// Publish raw [jsonData] into [collection] without proto encoding.
-  /// Useful for testing and for consumers that manage their own serialisation.
-  /// Returns the opaque document ID.
-  String publishRaw(String collection, String jsonData) {
-    return _node.publishDocument(collection, jsonData);
+  /// Publish [jsonData] into [collection]. If [docId] is omitted a
+  /// timestamp+random ID is generated. Returns the ID used.
+  String publishRaw(String collection, String jsonData, {String? docId}) {
+    final id = docId ?? _newDocId();
+    _node.putDocument(collection, id, jsonData);
+    return id;
   }
 
   /// Retrieve a document as a proto message, or null if not found.
-  ///
-  /// Pass the empty [defaultInstance] for the message type you expect:
   /// ```dart
   /// final track = node.getMessage('tracks', docId, Track());
   /// ```
@@ -194,20 +110,25 @@ class PeatFlutterNode {
     return (defaultInstance.createEmptyInstance()..mergeFromJson(json)) as T;
   }
 
-  /// List all document IDs in [collection].
-  List<String> listDocuments(String collection) => _node.listDocuments(collection);
+  /// Retrieve a raw JSON document, or null if not found.
+  String? getRaw(String collection, String docId) =>
+      _node.getDocument(collection, docId);
 
-  /// A broadcast [Stream] of document change events for this node.
+  /// List all document IDs in [collection].
+  List<String> listDocuments(String collection) =>
+      _node.listDocuments(collection);
+
+  /// A broadcast [Stream] of document change events.
   ///
-  /// Internally calls [SubscriptionHandle.pollChanges] every [pollInterval]
-  /// (default 50 ms) — no foreign callback needed. Cancelling the
-  /// subscription or calling [dispose] stops the underlying poll timer.
+  /// Backed by [SubscriptionHandle.pollChanges] called every [pollInterval]
+  /// (default 50 ms). Cancelling the stream also cancels the subscription.
   Stream<DocumentChange> subscribeChanges({
     Duration pollInterval = const Duration(milliseconds: 50),
   }) {
     _changeTimer?.cancel();
     _changeCtrl?.close();
     _subscription?.cancel();
+    _subscription?.close();
 
     final sub = _node.subscribePoll();
     _subscription = sub;
@@ -216,6 +137,7 @@ class PeatFlutterNode {
       onCancel: () {
         _changeTimer?.cancel();
         sub.cancel();
+        sub.close();
       },
     );
     _changeCtrl = ctrl;
@@ -230,15 +152,11 @@ class PeatFlutterNode {
     return ctrl.stream;
   }
 
-  /// Registers the BLE translator fan-out and returns a broadcast [Stream] of
-  /// outbound frames. For mobile Dart-owned BLE (Android/iOS), hand each
-  /// [OutboundFrame.bytes] to the radio after your GATT framing + encryption.
+  /// Registers the BLE translator fan-out and returns a broadcast [Stream]
+  /// of outbound frames. On mobile, write each [OutboundFrame.bytes] to the
+  /// relevant GATT characteristic after your own GATT framing + encryption.
   ///
-  /// On desktop, Rust owns the radio via peat-btle's bluer/CoreBluetooth/WinRT
-  /// backends — this stream is unused and may not emit.
-  ///
-  /// Cancelling the stream or calling [dispose] calls
-  /// [PeatNode.stopOutboundFrames] on the FFI side.
+  /// Cancelling the stream or calling [dispose] stops the fan-out.
   Stream<OutboundFrame> startOutboundFrames({
     Duration pollInterval = const Duration(milliseconds: 50),
   }) {
@@ -267,26 +185,21 @@ class PeatFlutterNode {
 
   /// Feed a BLE inbound frame (postcard bytes from peat-btle) into the mesh.
   ///
-  /// Mobile flow:
-  ///   flutter_blue_plus → peat-btle.onBleDataReceived → postcardBytes
-  ///   → ingestInboundFrame → Automerge publish → subscribeChanges stream.
-  ///
-  /// Returns the document ID if the frame was accepted, null if the collection
-  /// was not recognised by the translator.
-  String? ingestInboundFrame(String collection, Uint8List postcardBytes) {
-    return _node.ingestInboundFrame(collection, postcardBytes);
-  }
+  /// Returns the document ID if the frame was accepted, null if unknown.
+  String? ingestInboundFrame(String collection, Uint8List postcardBytes) =>
+      _node.ingestInboundFrame(collection, postcardBytes);
 
-  /// Cancel all active subscriptions and timers. Call when the node is no
-  /// longer needed to avoid timer leaks.
+  /// Cancel all active subscriptions and release FFI resources.
   void dispose() {
     _changeTimer?.cancel();
     _outboundTimer?.cancel();
     _changeCtrl?.close();
     _outboundCtrl?.close();
     _subscription?.cancel();
+    _subscription?.close();
     try {
       _node.stopOutboundFrames();
     } catch (_) {}
+    _node.close();
   }
 }

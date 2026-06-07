@@ -5,15 +5,17 @@ export 'src/peat_node.dart'
     show
         PeatFlutterNode,
         NodeConfig,
+        TransportConfigFFI,
         DocumentChange,
         OutboundFrame,
         ChangeType,
-        PeatError;
+        PeerInfo,
+        PeerTransportState;
 
 /// Opens the peat_ffi native library for the current platform.
 ///
-/// On iOS peat-ffi is statically linked into the app binary; all other
-/// platforms load a shared library by name.
+/// Called automatically by [PeatFlutterNode.initialize]; you do not need to
+/// call this directly unless you are configuring the bindings manually.
 DynamicLibrary openPeatFfiLib() {
   if (Platform.isIOS) {
     // Statically linked via ios/Frameworks/PeatFFI.xcframework.
