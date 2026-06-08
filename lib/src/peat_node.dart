@@ -17,7 +17,9 @@ export 'generated/peat_ffi.dart'
         OutboundFrame,
         ChangeType,
         PeerInfo,
-        PeerTransportState;
+        PeerTransportState,
+        NodeInfo,
+        NodeStatus;
 
 final _rng = Random();
 
@@ -76,6 +78,35 @@ class PeatFlutterNode {
 
   /// This node's hex-encoded unique identifier.
   String get nodeId => _node.nodeId();
+
+  /// Publish this node's presence with capabilities into the mesh.
+  /// Other nodes will see it via [getNodes].
+  void publishSelf({
+    required String nodeId,
+    required String name,
+    required List<String> capabilities,
+    NodeStatus status = NodeStatus.active,
+    double readiness = 1.0,
+  }) {
+    _node.putNode(NodeInfo(
+      id: nodeId,
+      nodeType: 'peat-flutter',
+      name: name,
+      status: status,
+      lat: 0,
+      lon: 0,
+      hae: null,
+      readiness: readiness,
+      capabilities: capabilities,
+      cellId: null,
+      batteryPercent: null,
+      heartRate: null,
+      lastHeartbeat: DateTime.now().millisecondsSinceEpoch,
+    ));
+  }
+
+  /// All nodes known to the mesh (including this one).
+  List<NodeInfo> get nodes => _node.getNodes();
 
   /// Number of currently connected peers.
   int get peerCount => _node.peerCount();

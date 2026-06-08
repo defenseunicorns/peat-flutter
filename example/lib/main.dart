@@ -83,6 +83,13 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
   SyncStats? _syncStats;
   Timer? _peerTimer;
 
+  // Node presence / G-Set roster
+  static const _allCapabilities = [
+    'comms', 'recon', 'medical', 'logistics', 'fire-support', 'transport',
+  ];
+  List<String> _myCapabilities = ['comms', 'logistics'];
+  List<NodeInfo> _roster = [];
+
   // PN-Counter CRDT: each node maintains its own (inc, dec) slot so
   // offline edits from multiple nodes merge additively on reconnect.
   // Total = Σ (inc_i - dec_i) across all nodes.
@@ -144,11 +151,15 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
         _refreshCounter(_node!);
       });
 
+      // Publish this node's presence into the mesh.
+      _publishSelf(node);
+
       _peerTimer = Timer.periodic(const Duration(seconds: 2), (_) {
         if (!mounted || _node == null) return;
         setState(() {
           _peers = _node!.connectedPeers;
           _syncStats = _node!.syncStats;
+          _roster = _node!.nodes;
         });
       });
 
@@ -235,6 +246,14 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
         _starting = false;
       });
     }
+  }
+
+  void _publishSelf(PeatFlutterNode node) {
+    node.publishSelf(
+      nodeId: _nodeId ?? 'unknown',
+      name: _hostName,
+      capabilities: _myCapabilities,
+    );
   }
 
   void _refreshCounter(PeatFlutterNode node) {
@@ -409,6 +428,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
       _syncStats = null;
       _counterLastBy = null;
       _peerNames.clear();
+      _roster = [];
       // _contentHashes persists across stop/start intentionally.
       _stopping = false;
       // Keep _myInc/_myDec/_counterDirty/_peerContributions so offline
@@ -523,7 +543,9 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text('Shared Counter',
+                        const Text('💧', style: TextStyle(fontSize: 16)),
+                        const SizedBox(width: 6),
+                        Text('Water Supply (L)',
                             style: theme.textTheme.titleSmall
                                 ?.copyWith(fontWeight: FontWeight.bold)),
                         const SizedBox(width: 8),
@@ -548,20 +570,29 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         IconButton.filledTonal(
-                          icon: const Icon(Icons.remove),
+                          icon: const Icon(Icons.water_drop_outlined),
                           iconSize: 28,
+                          tooltip: 'Consume (-1L)',
                           onPressed: () => _writeCounter(_node, false),
                         ),
                         const SizedBox(width: 24),
-                        Text(
-                          '$_counterValue',
-                          style: theme.textTheme.displaySmall
-                              ?.copyWith(fontWeight: FontWeight.bold),
+                        Column(
+                          children: [
+                            Text(
+                              '$_counterValue',
+                              style: theme.textTheme.displaySmall
+                                  ?.copyWith(fontWeight: FontWeight.bold),
+                            ),
+                            Text('litres total',
+                                style: theme.textTheme.labelSmall
+                                    ?.copyWith(color: theme.colorScheme.outline)),
+                          ],
                         ),
                         const SizedBox(width: 24),
                         IconButton.filledTonal(
                           icon: const Icon(Icons.add),
                           iconSize: 28,
+                          tooltip: 'Resupply (+1L)',
                           onPressed: () => _writeCounter(_node, true),
                         ),
                       ],
@@ -570,7 +601,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                     // Local contribution chip
                     _contribChip(
                       context: context,
-                      label: 'You',
+                      label: 'Your supply',
                       value: _myInc - _myDec,
                       theme: theme,
                       isMe: true,
@@ -582,6 +613,113 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                         style: theme.textTheme.bodySmall
                             ?.copyWith(color: theme.colorScheme.outline),
                       ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+
+            // ---- capabilities + node roster ----
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Text('My Capabilities',
+                          style: theme.textTheme.titleSmall
+                              ?.copyWith(fontWeight: FontWeight.bold)),
+                      const Spacer(),
+                      if (hasNode)
+                        TextButton(
+                          onPressed: () {
+                            if (_node != null) _publishSelf(_node!);
+                          },
+                          style: TextButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          child: Text('publish',
+                              style: theme.textTheme.bodySmall
+                                  ?.copyWith(color: theme.colorScheme.primary)),
+                        ),
+                    ]),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: _allCapabilities.map((cap) {
+                        final selected = _myCapabilities.contains(cap);
+                        return FilterChip(
+                          label: Text(cap),
+                          labelStyle: theme.textTheme.labelSmall,
+                          selected: selected,
+                          onSelected: (v) => setState(() {
+                            if (v) {
+                              _myCapabilities = [..._myCapabilities, cap];
+                            } else {
+                              _myCapabilities = _myCapabilities
+                                  .where((c) => c != cap)
+                                  .toList();
+                            }
+                          }),
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                        );
+                      }).toList(),
+                    ),
+                    if (_roster.isNotEmpty) ...[
+                      const Divider(height: 16),
+                      Text('Node Roster (${_roster.length})',
+                          style: theme.textTheme.labelMedium
+                              ?.copyWith(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 4),
+                      ..._roster.map((n) {
+                        final isMe = n.id == _nodeId;
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Row(children: [
+                            Icon(
+                              isMe ? Icons.person : Icons.person_outline,
+                              size: 14,
+                              color: isMe
+                                  ? theme.colorScheme.primary
+                                  : theme.colorScheme.secondary,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                n.name,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  fontWeight: isMe
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                ),
+                              ),
+                            ),
+                            Wrap(
+                              spacing: 3,
+                              children: n.capabilities
+                                  .take(4)
+                                  .map((c) => Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 4, vertical: 1),
+                                        decoration: BoxDecoration(
+                                          color: theme.colorScheme.surfaceVariant,
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: Text(c,
+                                            style: theme.textTheme.labelSmall
+                                                ?.copyWith(fontSize: 10)),
+                                      ))
+                                  .toList(),
+                            ),
+                          ]),
+                        );
+                      }),
                     ],
                   ],
                 ),

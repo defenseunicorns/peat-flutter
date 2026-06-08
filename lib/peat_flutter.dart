@@ -10,7 +10,9 @@ export 'src/peat_node.dart'
         OutboundFrame,
         ChangeType,
         PeerInfo,
-        PeerTransportState;
+        PeerTransportState,
+        NodeInfo,
+        NodeStatus;
 
 /// Opens the peat_ffi native library for the current platform.
 ///
