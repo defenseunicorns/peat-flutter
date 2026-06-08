@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
@@ -37,12 +38,22 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
   String _hostName = '';
   String? _error;
   bool _starting = false;
+  bool _stopping = false;
   bool _bleRunning = false;
   int _bleFrameCount = 0;
   final List<String> _changeLog = [];
   List<String> _peers = [];
   SyncStats? _syncStats;
   Timer? _peerTimer;
+
+  // Shared CRDT counter — persists across node start/stop
+  // When offline, +/- edits are buffered locally and flushed on reconnect.
+  static const _counterCollection = 'demo';
+  static const _counterDocId = 'counter';
+  int _counterValue = 0;
+  String? _counterLastBy;
+  bool _counterDirty = false; // local edits made while offline
+  Timer? _counterTimer;
   StreamSubscription<DocumentChange>? _changeSub;
   StreamSubscription<OutboundFrame>? _outboundSub;
   int _publishCount = 0;
@@ -81,6 +92,13 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
       ));
       node.startSync();
 
+      // On connect: flush any offline edits, or pull peer's latest value.
+      _refreshCounter(node);
+      _counterTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+        if (!mounted || _node == null) return;
+        _refreshCounter(_node!);
+      });
+
       _peerTimer = Timer.periodic(const Duration(seconds: 2), (_) {
         if (!mounted || _node == null) return;
         setState(() {
@@ -114,6 +132,46 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
             : 'Failed to start node: $e';
         _starting = false;
       });
+    }
+  }
+
+  void _refreshCounter(PeatFlutterNode node) {
+    if (_counterDirty) {
+      // Flush local edits made while offline before accepting peer values.
+      _writeCounter(node, _counterValue);
+      return;
+    }
+    final raw = node.getRaw(_counterCollection, _counterDocId);
+    if (raw == null) {
+      // Nothing in the mesh yet — publish our local value.
+      _writeCounter(node, _counterValue);
+      return;
+    }
+    try {
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      final v = map['value'] as int? ?? 0;
+      final by = map['by'] as String?;
+      if (mounted && (v != _counterValue || by != _counterLastBy)) {
+        setState(() {
+          _counterValue = v;
+          _counterLastBy = by;
+        });
+      }
+    } catch (_) {}
+  }
+
+  void _writeCounter(PeatFlutterNode? node, int value) {
+    setState(() {
+      _counterValue = value;
+      _counterLastBy = _hostName;
+    });
+    if (node != null) {
+      final json = jsonEncode({'value': value, 'by': _hostName});
+      node.publishRaw(_counterCollection, json, docId: _counterDocId);
+      setState(() => _counterDirty = false);
+    } else {
+      // Offline — mark dirty so we flush on next connect.
+      setState(() => _counterDirty = true);
     }
   }
 
@@ -171,18 +229,27 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
   }
 
   void _stopNode() {
+    setState(() => _stopping = true);
     _changeSub?.cancel();
     _outboundSub?.cancel();
     _peerTimer?.cancel();
+    _counterTimer?.cancel();
     try { _node?.dispose(); } catch (_) {}
+    Future.delayed(const Duration(milliseconds: 800), () {
+      if (mounted) setState(() => _stopping = false);
+    });
     setState(() {
       _node = null;
       _nodeId = null;
       _changeSub = null;
       _outboundSub = null;
       _peerTimer = null;
+      _counterTimer = null;
       _peers = [];
       _syncStats = null;
+      _counterLastBy = null;
+      _stopping = false; // reset handled by Future.delayed above
+      // Keep _counterValue and _counterDirty so offline edits persist.
       _bleRunning = false;
       _bleFrameCount = 0;
     });
@@ -193,6 +260,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
     _changeSub?.cancel();
     _outboundSub?.cancel();
     _peerTimer?.cancel();
+    _counterTimer?.cancel();
     _node?.dispose();
     super.dispose();
   }
@@ -270,27 +338,80 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
 
             const SizedBox(height: 12),
 
-            // ---- node start/stop + publish ----
-            Row(children: [
-              Expanded(
-                child: FilledButton(
-                  onPressed:
-                      _starting ? null : (hasNode ? _stopNode : _startNode),
-                  child: Text(_starting
-                      ? 'Starting…'
-                      : (hasNode ? 'Stop Node' : 'Start Node')),
+            // ---- node start/stop ----
+            FilledButton(
+              onPressed: (_starting || _stopping) ? null : (hasNode ? _stopNode : _startNode),
+              child: Text(_starting
+                  ? 'Starting…'
+                  : (_stopping ? 'Stopping…' : (hasNode ? 'Stop Node' : 'Start Node'))),
+            ),
+
+            // ---- shared CRDT counter (always visible) ----
+            const SizedBox(height: 16),
+            Card(
+              color: _counterDirty
+                  ? theme.colorScheme.tertiaryContainer.withOpacity(0.4)
+                  : null,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text('Shared Counter',
+                            style: theme.textTheme.titleSmall
+                                ?.copyWith(fontWeight: FontWeight.bold)),
+                        const SizedBox(width: 8),
+                        if (!hasNode)
+                          Chip(
+                            label: const Text('✈ offline'),
+                            labelStyle: theme.textTheme.labelSmall,
+                            padding: EdgeInsets.zero,
+                            visualDensity: VisualDensity.compact,
+                          )
+                        else if (_counterDirty)
+                          Chip(
+                            label: const Text('⟳ syncing'),
+                            labelStyle: theme.textTheme.labelSmall,
+                            padding: EdgeInsets.zero,
+                            visualDensity: VisualDensity.compact,
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        IconButton.filledTonal(
+                          icon: const Icon(Icons.remove),
+                          iconSize: 28,
+                          onPressed: () => _writeCounter(_node, _counterValue - 1),
+                        ),
+                        const SizedBox(width: 24),
+                        Text(
+                          '$_counterValue',
+                          style: theme.textTheme.displaySmall
+                              ?.copyWith(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(width: 24),
+                        IconButton.filledTonal(
+                          icon: const Icon(Icons.add),
+                          iconSize: 28,
+                          onPressed: () => _writeCounter(_node, _counterValue + 1),
+                        ),
+                      ],
+                    ),
+                    if (_counterLastBy != null)
+                      Text(
+                        'last write: $_counterLastBy',
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(color: theme.colorScheme.outline),
+                      ),
+                  ],
                 ),
               ),
-              if (hasNode) ...[
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: _publishTest,
-                    child: const Text('Publish Test Doc'),
-                  ),
-                ),
-              ],
-            ]),
+            ),
 
             // ---- mobile BLE section ----
             if (hasNode && _isMobile) ...[
