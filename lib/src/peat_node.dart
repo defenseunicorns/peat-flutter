@@ -56,6 +56,7 @@ class PeatFlutterNode {
 
   Timer? _changeTimer;
   Timer? _outboundTimer;
+  Timer? _syncTimer;
   SubscriptionHandle? _subscription;
   StreamController<DocumentChange>? _changeCtrl;
   StreamController<OutboundFrame>? _outboundCtrl;
@@ -82,11 +83,24 @@ class PeatFlutterNode {
   /// List of currently connected peer node IDs.
   List<String> get connectedPeers => _node.connectedPeers();
 
-  /// Start mesh synchronisation.
-  void startSync() => _node.startSync();
+  /// Current sync statistics (active, bytes sent/received).
+  SyncStats get syncStats => _node.syncStats();
+
+  /// Start mesh synchronisation and begin periodic sync requests.
+  void startSync({Duration syncInterval = const Duration(seconds: 5)}) {
+    _node.startSync();
+    _syncTimer?.cancel();
+    _syncTimer = Timer.periodic(syncInterval, (_) {
+      if (!_node.isClosed) _node.requestSync();
+    });
+  }
 
   /// Stop mesh synchronisation.
-  void stopSync() => _node.stopSync();
+  void stopSync() {
+    _syncTimer?.cancel();
+    _syncTimer = null;
+    _node.stopSync();
+  }
 
   /// Store [message] (a proto-generated [GeneratedMessage]) into [collection]
   /// under [docId]. Publishes to connected peers via Automerge sync.
@@ -202,13 +216,15 @@ class PeatFlutterNode {
   void dispose() {
     _changeTimer?.cancel();
     _outboundTimer?.cancel();
+    _syncTimer?.cancel();
     _changeCtrl?.close();
     _outboundCtrl?.close();
     _subscription?.cancel();
     _subscription?.close();
-    try {
-      _node.stopOutboundFrames();
-    } catch (_) {}
-    _node.close();
+    if (!_node.isClosed) {
+      try { _node.stopSync(); } catch (_) {}
+      try { _node.stopOutboundFrames(); } catch (_) {}
+      _node.close();
+    }
   }
 }

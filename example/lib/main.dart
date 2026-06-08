@@ -1,9 +1,10 @@
 import 'dart:async';
-import 'dart:io';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:peat_flutter/peat_flutter.dart';
+import 'package:peat_flutter/src/generated/peat_ffi.dart' show SyncStats;
 
 void main() {
   PeatFlutterNode.initialize();
@@ -33,18 +34,32 @@ class PeatExampleHome extends StatefulWidget {
 class _PeatExampleHomeState extends State<PeatExampleHome> {
   PeatFlutterNode? _node;
   String? _nodeId;
+  String _hostName = '';
   String? _error;
   bool _starting = false;
   bool _bleRunning = false;
   int _bleFrameCount = 0;
   final List<String> _changeLog = [];
   List<String> _peers = [];
+  SyncStats? _syncStats;
   Timer? _peerTimer;
   StreamSubscription<DocumentChange>? _changeSub;
   StreamSubscription<OutboundFrame>? _outboundSub;
   int _publishCount = 0;
 
   static bool get _isMobile => Platform.isAndroid || Platform.isIOS;
+
+  @override
+  void initState() {
+    super.initState();
+    if (Platform.isIOS) {
+      _hostName = 'iPhone (simulator)';
+    } else if (Platform.isMacOS) {
+      _hostName = 'macOS · ${Platform.localHostname.split('.').first}';
+    } else {
+      _hostName = Platform.operatingSystem;
+    }
+  }
 
   Future<void> _startNode() async {
     setState(() {
@@ -66,9 +81,35 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
       ));
       node.startSync();
 
+      // Track known doc IDs per collection to detect remote arrivals.
+      final Map<String, Set<String>> _knownDocs = {};
+
       _peerTimer = Timer.periodic(const Duration(seconds: 2), (_) {
         if (!mounted || _node == null) return;
-        setState(() => _peers = _node!.connectedPeers);
+        setState(() {
+          _peers = _node!.connectedPeers;
+          _syncStats = _node!.syncStats;
+        });
+
+        // Poll for remotely-synced documents not yet seen via change events.
+        for (final col in ['test']) {
+          final current = _node!.listDocuments(col).toSet();
+          final known = _knownDocs[col] ?? {};
+          final newDocs = current.difference(known);
+          if (newDocs.isNotEmpty && mounted) {
+            setState(() {
+              for (final id in newDocs) {
+                _changeLog.insert(0, '[sync] $col/$id');
+              }
+              if (_changeLog.length > 100) {
+                _changeLog.removeRange(100, _changeLog.length);
+              }
+            });
+            _knownDocs[col] = current;
+          } else {
+            _knownDocs[col] = current;
+          }
+        }
       });
 
       final sub = node.subscribeChanges().listen((change) {
@@ -156,7 +197,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
     _changeSub?.cancel();
     _outboundSub?.cancel();
     _peerTimer?.cancel();
-    _node?.dispose();
+    try { _node?.dispose(); } catch (_) {}
     setState(() {
       _node = null;
       _nodeId = null;
@@ -164,6 +205,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
       _outboundSub = null;
       _peerTimer = null;
       _peers = [];
+      _syncStats = null;
       _bleRunning = false;
       _bleFrameCount = 0;
     });
@@ -210,9 +252,12 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
 
             if (_nodeId != null) ...[
               const SizedBox(height: 4),
-              Text('Node ID: $_nodeId',
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(fontFamily: 'monospace')),
+              Text('$_hostName',
+                  style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+              Text(
+                '${_nodeId!.substring(0, 8)}…${_nodeId!.substring(_nodeId!.length - 8)}',
+                style: theme.textTheme.bodySmall?.copyWith(fontFamily: 'monospace', color: theme.colorScheme.outline),
+              ),
               const SizedBox(height: 4),
               Row(children: [
                 Icon(
@@ -236,6 +281,14 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                   '  • ${p.length > 16 ? '${p.substring(0, 8)}…${p.substring(p.length - 8)}' : p}',
                   style: theme.textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
                 ))),
+              if (_syncStats != null)
+                Text(
+                  '↑${_syncStats!.bytesSent}B  ↓${_syncStats!.bytesReceived}B',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontFamily: 'monospace',
+                    color: theme.colorScheme.outline,
+                  ),
+                ),
             ],
 
             const SizedBox(height: 12),
