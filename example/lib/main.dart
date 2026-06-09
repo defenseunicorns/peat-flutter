@@ -189,12 +189,10 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
   }
 
   Future<void> _startNode() async {
-    if (_startRetries == 0) {
-      setState(() {
-        _starting = true;
-        _error = null;
-      });
-    }
+    setState(() {
+      _starting = true;
+      _error = null;
+    });
     try {
       final dir = await getApplicationSupportDirectory();
       final node = PeatFlutterNode.create(NodeConfig(
@@ -378,18 +376,8 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
         _starting = false;
       });
     } catch (e) {
-      final msg = e.toString();
-      // redb file lock still held by winding-down background tasks.
-      // Auto-retry silently up to 6× (3s window) before surfacing the error.
-      if ((msg.contains('redb') || msg.contains('storage') ||
-              msg.contains('StorageError')) &&
-          _startRetries < 6) {
-        _startRetries++;
-        await Future.delayed(const Duration(milliseconds: 500));
-        if (mounted && _starting) _startNode();
-        return;
-      }
-      _startRetries = 0;
+      // Rust's create_node already retries redb open for up to 30s internally.
+      // No Dart-level retry — that would create parallel competing runtimes.
       setState(() {
         _error = e is UnimplementedError
             ? 'Run `just gen-bindings` to regenerate FFI bindings.'
@@ -399,7 +387,6 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
     }
   }
 
-  int _startRetries = 0;
 
   void _refreshMission(PeatFlutterNode node) {
     try {
