@@ -665,11 +665,14 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
       child: Scaffold(
       appBar: AppBar(
         backgroundColor: theme.colorScheme.inversePrimary,
-        toolbarHeight: 0, // hide the title bar entirely; tabs speak for themselves
+        toolbarHeight: 2,
         bottom: const TabBar(
+          labelPadding: EdgeInsets.symmetric(vertical: 4),
           tabs: [
-            Tab(icon: Icon(Icons.water_drop), text: 'Operations'),
-            Tab(icon: Icon(Icons.timeline), text: 'Activity'),
+            Tab(icon: Icon(Icons.water_drop, size: 18), text: 'Operations',
+                height: 40),
+            Tab(icon: Icon(Icons.timeline, size: 18), text: 'Activity',
+                height: 40),
           ],
         ),
       ),
@@ -682,7 +685,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
             child: CustomScrollView(
               slivers: [
                 SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                   sliver: SliverList(
                     delegate: SliverChildListDelegate([
             // ---- status / error banner ----
@@ -700,36 +703,65 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                 ),
               ),
 
-            // ---- callsign (always editable) ----
-            const SizedBox(height: 8),
-            TextField(
-              controller: _callsignCtrl,
-              decoration: InputDecoration(
-                labelText: 'Callsign',
-                prefixIcon: const Icon(Icons.badge_outlined),
-                isDense: true,
-                border: const OutlineInputBorder(),
-                suffix: hasNode
-                    ? GestureDetector(
-                        onTap: () { _publishSelf(_node!); },
-                        child: Text('update',
-                            style: theme.textTheme.labelSmall
-                                ?.copyWith(color: theme.colorScheme.primary)),
-                      )
-                    : null,
-              ),
-              onSubmitted: (_) { if (hasNode) _publishSelf(_node!); },
+            // ---- callsign + node start/stop on one line ----
+            const SizedBox(height: 4),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _callsignCtrl,
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                    decoration: InputDecoration(
+                      hintText: 'Callsign',
+                      prefixIcon: const Icon(Icons.edit_outlined, size: 18),
+                      prefixIconConstraints:
+                          const BoxConstraints(minWidth: 32, minHeight: 0),
+                      isDense: true,
+                      border: InputBorder.none,
+                      enabledBorder: const UnderlineInputBorder(),
+                      focusedBorder: UnderlineInputBorder(
+                        borderSide: BorderSide(
+                            color: theme.colorScheme.primary, width: 2),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 4),
+                    ),
+                    onSubmitted: (_) { if (hasNode) _publishSelf(_node!); },
+                  ),
+                ),
+                const SizedBox(width: 10),
+                FilledButton(
+                  onPressed: (_starting || _stopping)
+                      ? null
+                      : (hasNode ? _stopNode : _startNode),
+                  style: FilledButton.styleFrom(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    minimumSize: const Size(0, 36),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: Text(
+                    _starting
+                        ? 'Starting…'
+                        : (_stopping
+                            ? 'Stopping…'
+                            : (hasNode ? 'Stop' : 'Start')),
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ),
+              ],
             ),
 
             if (_nodeId != null) ...[
-              const SizedBox(height: 4),
               Row(children: [
                 Expanded(
                   child: Text(
                     '${_nodeId!.substring(0, 8)}…${_nodeId!.substring(_nodeId!.length - 8)}',
                     style: theme.textTheme.bodySmall?.copyWith(
                         fontFamily: 'monospace',
-                        color: theme.colorScheme.outline),
+                        color: theme.colorScheme.outline,
+                        fontSize: 10),
                   ),
                 ),
                 if (_syncStats != null)
@@ -746,22 +778,14 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
 
             const SizedBox(height: 12),
 
-            // ---- node start/stop ----
-            FilledButton(
-              onPressed: (_starting || _stopping) ? null : (hasNode ? _stopNode : _startNode),
-              child: Text(_starting
-                  ? 'Starting…'
-                  : (_stopping ? 'Stopping…' : (hasNode ? 'Stop Node' : 'Start Node'))),
-            ),
-
             // ---- shared CRDT counter (always visible) ----
-            const SizedBox(height: 16),
+            const SizedBox(height: 10),
             Card(
               color: _counterDirty
                   ? theme.colorScheme.tertiaryContainer.withOpacity(0.4)
                   : null,
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 14),
                 child: Column(
                   children: [
                     Row(
@@ -821,23 +845,29 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 6),
-                    // Local contribution chip
-                    _contribChip(
-                      context: context,
-                      label: 'Your supply',
-                      value: _myInc - _myDec,
-                      theme: theme,
-                      isMe: true,
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _contribChip(
+                          context: context,
+                          label: 'Yours',
+                          value: _myInc - _myDec,
+                          theme: theme,
+                          isMe: true,
+                        ),
+                        if (_counterLastBy != null) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            '✎ $_counterLastBy',
+                            style: theme.textTheme.bodySmall
+                                ?.copyWith(color: theme.colorScheme.outline,
+                                    fontSize: 10),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ],
                     ),
-                    if (_counterLastBy != null) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        'last write: $_counterLastBy',
-                        style: theme.textTheme.bodySmall
-                            ?.copyWith(color: theme.colorScheme.outline),
-                      ),
-                    ],
                   ],
                 ),
               ),
@@ -978,7 +1008,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
               ], // slivers
             ), // CustomScrollView
           ), // Expanded
-          Padding(padding: EdgeInsets.only(bottom: MediaQuery.of(context).padding.bottom)),
+          SizedBox(height: MediaQuery.of(context).padding.bottom + 8),
           ],  // Column children (Operations tab)
           ), // Column (Operations tab)
 
