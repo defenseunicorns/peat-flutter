@@ -641,15 +641,11 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                               color: theme.colorScheme.onPrimaryContainer)),
                 )).toList(),
               ),
-            ] else
-              Text(
-                _myCapabilities.contains('leader')
-                    ? 'Tap "Form Cell" to organize the roster into a formal unit.'
-                    : 'Awaiting cell formation from leader.',
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.outline,
-                        fontStyle: FontStyle.italic),
-              ),
+            ] else if (!_myCapabilities.contains('leader'))
+              Text('Awaiting cell formation from leader.',
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: theme.colorScheme.outline,
+                          fontStyle: FontStyle.italic)),
           ],
         ),
       ),
@@ -743,15 +739,11 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
               ),
             ]),
             const SizedBox(height: 6),
-            if (pending.isEmpty && recent.isEmpty)
-              Text(
-                isLeader
-                    ? 'No pending resupply requests.'
-                    : 'Tap "Request 5L" to ask the leader for resupply.',
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.outline,
-                        fontStyle: FontStyle.italic),
-              ),
+            if (pending.isEmpty && recent.isEmpty && isLeader)
+              Text('No pending requests.',
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: theme.colorScheme.outline,
+                          fontStyle: FontStyle.italic)),
             ...pending.map((cmd) {
               final params = _parseParams(cmd.parameters);
               return Padding(
@@ -1258,9 +1250,13 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                               style: theme.textTheme.displaySmall
                                   ?.copyWith(fontWeight: FontWeight.bold),
                             ),
-                            Text('liters total',
-                                style: theme.textTheme.labelSmall
-                                    ?.copyWith(color: theme.colorScheme.outline)),
+                            // yours / total
+                            Text(
+                              '${_myInc - _myDec} / $_counterValue L',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.outline,
+                              ),
+                            ),
                           ],
                         ),
                         const SizedBox(width: 24),
@@ -1272,19 +1268,11 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 4),
+                    if (_counterLastBy != null && _counterValue > 0) ...[
+                    const SizedBox(height: 2),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        _contribChip(
-                          context: context,
-                          label: 'Yours',
-                          value: _myInc - _myDec,
-                          theme: theme,
-                          isMe: true,
-                        ),
-                        if (_counterLastBy != null) ...[
-                          const SizedBox(width: 8),
                           Text(
                             '✎ $_counterLastBy',
                             style: theme.textTheme.bodySmall
@@ -1292,9 +1280,9 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                                     fontSize: 10),
                             overflow: TextOverflow.ellipsis,
                           ),
-                        ],
                       ],
                     ),
+                    ], // counterLastBy
                   ],
                 ),
               ),
@@ -1318,61 +1306,16 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
               _buildCommandCard(theme),
             ],
 
-            // ---- capabilities + node roster ----
-            const SizedBox(height: 12),
+            // ---- node roster (primary situational awareness) ----
+            if (_roster.isNotEmpty) ...[
+            const SizedBox(height: 10),
             Card(
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(children: [
-                      Text('My Capabilities',
-                          style: theme.textTheme.titleSmall
-                              ?.copyWith(fontWeight: FontWeight.bold)),
-                      const Spacer(),
-                      if (hasNode)
-                        TextButton(
-                          onPressed: () {
-                            if (_node != null) _publishSelf(_node!);
-                          },
-                          style: TextButton.styleFrom(
-                            padding: EdgeInsets.zero,
-                            minimumSize: Size.zero,
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          ),
-                          child: Text('publish',
-                              style: theme.textTheme.bodySmall
-                                  ?.copyWith(color: theme.colorScheme.primary)),
-                        ),
-                    ]),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
-                      children: _allCapabilities.map((cap) {
-                        final selected = _myCapabilities.contains(cap);
-                        return FilterChip(
-                          label: Text(cap),
-                          labelStyle: theme.textTheme.labelSmall,
-                          selected: selected,
-                          onSelected: (v) => setState(() {
-                            if (v) {
-                              _myCapabilities = [..._myCapabilities, cap];
-                            } else {
-                              _myCapabilities = _myCapabilities
-                                  .where((c) => c != cap)
-                                  .toList();
-                            }
-                          }),
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                        );
-                      }).toList(),
-                    ),
-                    if (_roster.isNotEmpty) ...[
-                      const Divider(height: 16),
-                      Text('Node Roster (${_roster.length})',
+                    Text('Node Roster (${_roster.length})',
                           style: theme.textTheme.labelMedium
                               ?.copyWith(fontWeight: FontWeight.bold)),
                       const SizedBox(height: 4),
@@ -1433,7 +1376,63 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                           ]),
                         );
                       }),
-                    ],
+                  ],
+                ),
+              ),
+            ),
+            ], // roster isNotEmpty
+
+            // ---- capabilities (secondary — configure role) ----
+            const SizedBox(height: 10),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Text('My Capabilities',
+                          style: theme.textTheme.titleSmall
+                              ?.copyWith(fontWeight: FontWeight.bold)),
+                      const Spacer(),
+                      if (hasNode)
+                        TextButton(
+                          onPressed: () {
+                            if (_node != null) _publishSelf(_node!);
+                          },
+                          style: TextButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          child: Text('publish',
+                              style: theme.textTheme.bodySmall
+                                  ?.copyWith(color: theme.colorScheme.primary)),
+                        ),
+                    ]),
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: _allCapabilities.map((cap) {
+                        final selected = _myCapabilities.contains(cap);
+                        return FilterChip(
+                          label: Text(cap),
+                          labelStyle: theme.textTheme.labelSmall,
+                          selected: selected,
+                          onSelected: (v) => setState(() {
+                            if (v) {
+                              _myCapabilities = [..._myCapabilities, cap];
+                            } else {
+                              _myCapabilities =
+                                  _myCapabilities.where((c) => c != cap).toList();
+                            }
+                          }),
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                        );
+                      }).toList(),
+                    ),
                   ],
                 ),
               ),
