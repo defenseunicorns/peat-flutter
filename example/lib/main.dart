@@ -248,9 +248,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
               if (params['from'] == _callsign) {
                 final qty = params['quantity'] as int? ?? 0;
                 _claimedCommandIds.add(cmd.id);
-                for (var i = 0; i < qty; i++) {
-                  _writeCounter(_node, true); // receive water
-                }
+                _adjustCounter(_node, qty); // atomic: receive all at once
               }
             }
           }
@@ -489,9 +487,14 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
     });
   }
 
-  void _writeCounter(PeatFlutterNode? node, bool increment) {
+  void _writeCounter(PeatFlutterNode? node, bool increment) =>
+      _adjustCounter(node, increment ? 1 : -1);
+
+  /// Apply [delta] in a single atomic write — avoids multi-write races
+  /// when resupply fulfillment needs to move N liters at once.
+  void _adjustCounter(PeatFlutterNode? node, int delta) {
     setState(() {
-      if (increment) _myInc++; else _myDec++;
+      if (delta > 0) _myInc += delta; else _myDec += -delta;
       _counterLastBy = _hostName;
     });
     if (node != null) {
@@ -634,9 +637,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
     try {
       final params = jsonDecode(cmd.parameters) as Map<String, dynamic>;
       final qty = params['quantity'] as int? ?? 0;
-      for (var i = 0; i < qty; i++) {
-        _writeCounter(node, false); // leader gives (dec)
-      }
+      _adjustCounter(node, -qty); // atomic: give all at once
     } catch (_) {}
     // Mark command as completed so the requester can claim it.
     node.putCommand(CommandInfo(
@@ -680,7 +681,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                     ? () {
                         if (isLeader) {
                           // No commander above — add directly to own supply.
-                          for (var i = 0; i < 5; i++) _writeCounter(_node, true);
+                          _adjustCounter(_node, 5);
                         } else {
                           _issueWaterRequest(5);
                         }
