@@ -842,28 +842,6 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
               ],
             ),
 
-            if (_nodeId != null) ...[
-              Row(children: [
-                Expanded(
-                  child: Text(
-                    '${_nodeId!.substring(0, 8)}…${_nodeId!.substring(_nodeId!.length - 8)}',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                        fontFamily: 'monospace',
-                        color: theme.colorScheme.outline,
-                        fontSize: 10),
-                  ),
-                ),
-                if (_syncStats != null)
-                  Text(
-                    '↑${_syncStats!.bytesSent}B  ↓${_syncStats!.bytesReceived}B',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      fontFamily: 'monospace',
-                      color: theme.colorScheme.outline,
-                      fontSize: 10,
-                    ),
-                  ),
-              ]),
-            ],
 
             const SizedBox(height: 12),
 
