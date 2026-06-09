@@ -193,11 +193,12 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
         setState(() {
           _peers = _node!.connectedPeers;
           _syncStats = _node!.syncStats;
-          // Show only self + currently connected peers.
-          // Historical/ghost entries from synced stores are excluded.
-          final validIds = {_nodeId, ..._peers};
+          // Show ALL nodes with valid IDs from the CRDT store — this is the
+          // G-Set: every node that has ever published itself appears here.
+          // Connection status (self/peer/offline) is shown as an indicator.
+          // Ghost cleanup (_cleanGhostNodes) handles stale entries separately.
           _roster = _node!.nodes
-              .where((n) => n.id.length >= 16 && validIds.contains(n.id) && seen.add(n.id))
+              .where((n) => n.id.length >= 16 && seen.add(n.id))
               .toList();
         });
       });
