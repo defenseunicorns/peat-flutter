@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform, Directory;
-import 'dart:math' show min;
+import 'dart:math' show min, Random;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show SystemUiOverlayStyle, SystemChrome;
@@ -123,6 +123,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
   late List<String> _myCapabilities;
   late TextEditingController _callsignCtrl;
   final FocusNode _callsignFocus = FocusNode();
+  bool _editingCallsign = false;
   String _callsignPrev = ''; // for cancel
   List<NodeInfo> _roster = [];
 
@@ -152,19 +153,29 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
 
   static bool get _isMobile => Platform.isAndroid || Platform.isIOS;
 
+  // NATO phonetic call signs — pick a random one as the default identity.
+  static const _callsignPool = [
+    'Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf',
+    'Hotel', 'India', 'Juliet', 'Kilo', 'Lima', 'Mike', 'November',
+    'Oscar', 'Papa', 'Quebec', 'Romeo', 'Sierra', 'Tango', 'Uniform',
+    'Victor', 'Whiskey', 'Xray', 'Yankee', 'Zulu',
+  ];
+
   @override
   void initState() {
     super.initState();
-    if (Platform.isIOS) {
-      _hostName = 'iPhone (simulator)';
-      _myCapabilities = ['recon', 'medical'];
-    } else if (Platform.isMacOS) {
-      _hostName = 'macOS · ${Platform.localHostname.split('.').first}';
+    // Default capabilities by platform role; macOS = command post.
+    if (Platform.isMacOS) {
       _myCapabilities = ['leader', 'comms', 'logistics'];
+    } else if (Platform.isIOS) {
+      _myCapabilities = ['recon', 'medical'];
     } else {
-      _hostName = Platform.operatingSystem;
       _myCapabilities = ['comms'];
     }
+    // Random unique default callsign: e.g. "Tango-47"
+    final rng = Random();
+    _hostName =
+        '${_callsignPool[rng.nextInt(_callsignPool.length)]}-${rng.nextInt(90) + 10}';
     _callsignCtrl = TextEditingController(text: _hostName);
     _callsignPrev = _hostName;
     // Load persisted callsign (overrides hostname default if saved)
@@ -177,15 +188,24 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
         });
       }
     });
+    // Leaving the field (tap away) exits edit mode.
     _callsignFocus.addListener(() {
-      if (_callsignFocus.hasFocus) {
-        _callsignPrev = _callsignCtrl.text;
-        // Select all so the user can just type to replace
-        _callsignCtrl.selection = TextSelection(
-          baseOffset: 0,
-          extentOffset: _callsignCtrl.text.length,
-        );
+      if (!_callsignFocus.hasFocus && _editingCallsign && mounted) {
+        setState(() => _editingCallsign = false);
       }
+    });
+  }
+
+  void _beginEditCallsign() {
+    _callsignPrev = _callsignCtrl.text;
+    setState(() => _editingCallsign = true);
+    // Select-all after the field is built so typing replaces.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _callsignCtrl.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _callsignCtrl.text.length,
+      );
+      _callsignFocus.requestFocus();
     });
   }
 
@@ -1143,12 +1163,11 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Expanded(
-                  child: _callsignFocus.hasFocus
+                  child: _editingCallsign
                       // Edit mode: inline text field
                       ? TextField(
                           controller: _callsignCtrl,
                           focusNode: _callsignFocus,
-                          autofocus: true,
                           style: theme.textTheme.titleMedium
                               ?.copyWith(fontWeight: FontWeight.bold),
                           decoration: InputDecoration(
@@ -1163,6 +1182,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                             suffixIcon: GestureDetector(
                               onTap: () {
                                 _callsignCtrl.text = _callsignPrev;
+                                setState(() => _editingCallsign = false);
                                 _callsignFocus.unfocus();
                               },
                               child: const Icon(Icons.close, size: 16),
@@ -1170,12 +1190,13 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                           ),
                           onSubmitted: (_) {
                             if (hasNode) _publishSelf(_node!);
+                            setState(() => _editingCallsign = false);
                             _callsignFocus.unfocus();
                           },
                         )
                       // Display mode: tappable text
                       : GestureDetector(
-                          onTap: () => _callsignFocus.requestFocus(),
+                          onTap: _beginEditCallsign,
                           child: Row(children: [
                             Text(
                               _callsign,
