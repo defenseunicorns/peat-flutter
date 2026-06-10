@@ -89,6 +89,8 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
   final Map<String, int> _contentHashes = {};
   List<String> _peers = [];
   SyncStats? _syncStats;
+  String? _endpointAddr;
+  String? _endpointSocketAddr;
   Timer? _peerTimer;
 
   // Cell and Command state
@@ -302,6 +304,8 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
         setState(() {
           _peers = _node!.connectedPeers;
           _syncStats = _node!.syncStats;
+          _endpointAddr = _node!.endpointAddr;
+          _endpointSocketAddr = _node!.endpointSocketAddr;
           // Show self, connected peers, and nodes heartbeat'd within 10 min.
           // Deduplicate by callsign (name), keeping the most recent entry —
           // prevents duplicate rows when the same device reconnects with a
@@ -1673,6 +1677,25 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                   _aboutRow(theme, 'Sent', '${_syncStats!.bytesSent} B'),
                   _aboutRow(theme, 'Received', '${_syncStats!.bytesReceived} B'),
                   _aboutRow(theme, 'Peers', '${_peers.length} connected'),
+                ],
+                if (_nodeId != null) ...[
+                  const SizedBox(height: 12),
+                  Text('Network Diagnostics',
+                      style: theme.textTheme.titleSmall
+                          ?.copyWith(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  _aboutRow(theme, 'Endpoint',
+                      (_endpointAddr == null || _endpointAddr!.isEmpty)
+                          ? '— (not advertising)'
+                          : _endpointAddr!),
+                  _aboutRow(theme, 'Socket',
+                      _endpointSocketAddr ?? '— (no bound address)'),
+                  _aboutRow(theme, 'Discovered',
+                      _peers.isEmpty ? 'none yet' : '${_peers.length} peer(s)'),
+                  if (_peers.isNotEmpty)
+                    for (final p in _peers)
+                      _aboutRow(theme, '·',
+                          p.length > 24 ? '${p.substring(0, 24)}…' : p),
                 ],
                 if (_nodeId == null)
                   Text('Start a node to see details.',

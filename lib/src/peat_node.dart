@@ -83,6 +83,16 @@ class PeatFlutterNode {
   /// This node's hex-encoded unique identifier.
   String get nodeId => _node.nodeId();
 
+  /// This node's iroh endpoint address (relay/derp URL form).
+  String get endpointAddr {
+    try { return _node.endpointAddr(); } catch (_) { return '—'; }
+  }
+
+  /// This node's bound socket address (host:port), if available.
+  String? get endpointSocketAddr {
+    try { return _node.endpointSocketAddr(); } catch (_) { return null; }
+  }
+
   /// Publish this node's presence with capabilities into the mesh.
   /// Other nodes will see it via [getNodes].
   void publishSelf({
