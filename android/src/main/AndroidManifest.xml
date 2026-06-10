@@ -22,6 +22,19 @@
     <!-- INTERNET required for Iroh QUIC relay / direct-connect peers -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Wi-Fi mDNS peer discovery (iroh swarm-discovery via raw multicast).
+         Android filters inbound multicast at the Wi-Fi driver to save power;
+         the app must hold a WifiManager.MulticastLock to receive it, which
+         requires CHANGE_WIFI_MULTICAST_STATE. ACCESS_WIFI_STATE is needed to
+         obtain the WifiManager. NEARBY_WIFI_DEVICES (API 33+) gates local
+         Wi-Fi peer interaction on Android 13+; neverForLocation since we do
+         not derive physical location from it. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation" />
+
     <!-- BLE hardware feature: set required="false" if your app degrades gracefully -->
     <uses-feature
         android:name="android.hardware.bluetooth_le"
