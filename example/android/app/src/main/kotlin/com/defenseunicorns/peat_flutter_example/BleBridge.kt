@@ -190,6 +190,13 @@ class BleBridge(private val context: Context) : PeatMeshListener {
     /// so the peer doesn't see a disconnect. start() re-binds the new node.
     fun unbind() {
         if (handle != 0L) try { PeatJni.bleSetStartedJni(handle, false) } catch (_: Throwable) {}
+        // Clear the global outbound fan-out while the old handle is still valid.
+        // subscribeOutboundFramesJni only re-registers the fan-out when the slot
+        // is empty; if we leave it bound to the now-freed node, the next start()
+        // just swaps the listener and the NEW node never produces outbound
+        // frames (the stop->reset->restart "no node connections" bug). The next
+        // start() re-subscribes, re-registering the fan-out on the fresh node.
+        if (handle != 0L) try { PeatJni.unsubscribeOutboundFramesJni(handle) } catch (_: Throwable) {}
         handle = 0L
         Log.i(TAG, "BLE bridge unbound from node (radio kept up)")
     }
@@ -200,6 +207,11 @@ class BleBridge(private val context: Context) : PeatMeshListener {
         peatBtle = null
         connectedPeers.clear()
         if (handle != 0L) try { PeatJni.bleSetStartedJni(handle, false) } catch (_: Throwable) {}
+        // Clear the global outbound fan-out (bound to this node) before the node
+        // is freed, so the next start() re-registers it on the fresh node rather
+        // than leaving it dead on the old one. See unbind() for the full
+        // rationale (stop->reset->restart "no node connections" bug).
+        if (handle != 0L) try { PeatJni.unsubscribeOutboundFramesJni(handle) } catch (_: Throwable) {}
         // Drop the node handle: it's about to be (or already) freed by node
         // teardown. A late inbound frame must NOT call ingest*FrameJni with a
         // stale/freed pointer (UAF) — handle == 0 makes the JNI layer no-op.

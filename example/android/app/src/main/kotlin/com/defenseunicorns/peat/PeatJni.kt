@@ -176,6 +176,17 @@ object PeatJni {
     ): Boolean
 
     /**
+     * Tear down the outbound fan-out: drops the FanoutHandle (so no frames
+     * fan out against this node), unregisters the ble/ble-lite translators on
+     * [handle], and clears the listener GlobalRef. MUST be called on node
+     * teardown — `subscribeOutboundFramesJni` only re-registers the fan-out
+     * when the slot is empty (a second subscribe just swaps the listener), so
+     * without this the fan-out stays bound to the freed old node and the new
+     * node produces no outbound frames after a restart. Idempotent.
+     */
+    @JvmStatic external fun unsubscribeOutboundFramesJni(handle: Long)
+
+    /**
      * Ingest a decrypted frame received over BLE into the mesh. peat-ffi
      * publishes it with "ble" origin so the mesh re-fans it to other
      * transports (iroh/Wi-Fi) without looping. Returns the doc id or null.
