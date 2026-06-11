@@ -51,6 +51,11 @@ class BleBridge(private val context: Context) : PeatMeshListener {
     private var peatBtle: PeatBtle? = null
     @Volatile private var handle: Long = 0L
     private var btStateReceiver: BroadcastReceiver? = null
+
+    // Optional secondary carrier (the Wi-Fi Direct TCP tunnel). The single
+    // subscribeOutboundFramesJni listener lives here, so we forward each frame
+    // to this sink too — same frame over both radios, idempotent on the peer.
+    @Volatile var outboundForward: ((String, String, ByteArray) -> Unit)? = null
     // Distinct BLE peers currently connected (deduped; onPeerConnected can fire
     // twice for the central+peripheral roles). Surfaced to the Flutter UI so the
     // BLE link is visible even though the app's iroh peer-count stays 0.
@@ -66,12 +71,17 @@ class BleBridge(private val context: Context) : PeatMeshListener {
     // subscribe is replaceable (swaps the global listener slot).
     private val outboundListener = object : OutboundFrameListener {
         override fun onFrame(transportId: String, collection: String, bytes: ByteArray) {
-            val btle = peatBtle ?: return
-            try {
-                btle.broadcastBytes(wrap(transportId, collection, bytes))
-                Log.d(TAG, "outbound [$transportId/$collection] ${bytes.size}B")
-            } catch (t: Throwable) {
-                Log.e(TAG, "broadcastBytes failed", t)
+            peatBtle?.let { btle ->
+                try {
+                    btle.broadcastBytes(wrap(transportId, collection, bytes))
+                    Log.d(TAG, "outbound [$transportId/$collection] ${bytes.size}B")
+                } catch (t: Throwable) {
+                    Log.e(TAG, "broadcastBytes failed", t)
+                }
+            }
+            // Mirror onto the secondary carrier (Wi-Fi Direct), if wired.
+            try { outboundForward?.invoke(transportId, collection, bytes) } catch (t: Throwable) {
+                Log.e(TAG, "outboundForward failed", t)
             }
         }
     }

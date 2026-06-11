@@ -26,8 +26,12 @@ class MainActivity : FlutterActivity() {
     // BLE transport bridge: pipes peat-ffi mesh frames over peat-btle.
     private var bleBridge: BleBridge? = null
 
-    // Wi-Fi Direct (P2P) link: forms an infra-free LAN; iroh syncs over it.
+    // Wi-Fi Direct (P2P) link: forms an infra-free LAN.
     private var wifiDirect: WifiDirectManager? = null
+
+    // P2PWiFi carrier: tunnels the same fan-out frames as BLE over a TCP
+    // socket on the Wi-Fi Direct link (a second transport alongside BLE).
+    private var wifiDirectBridge: WifiDirectBridge? = null
 
     companion object {
         private const val BLE_CHANNEL = "peat/ble"
@@ -86,13 +90,23 @@ class MainActivity : FlutterActivity() {
                         return@setMethodCallHandler
                     }
                     val bridge = bleBridge ?: BleBridge(applicationContext).also { bleBridge = it }
-                    result.success(bridge.start())
+                    // Mirror outbound frames to the Wi-Fi Direct tunnel when it
+                    // exists (checked at call time, so order of start vs.
+                    // startWifiDirect doesn't matter).
+                    bridge.outboundForward = { t, c, b -> wifiDirectBridge?.send(t, c, b) }
+                    val ok = bridge.start()
+                    // Node (re)start: re-point the Wi-Fi Direct tunnel at the
+                    // new node too (the TCP link, like BLE, stays up across it).
+                    wifiDirectBridge?.rebind()
+                    result.success(ok)
                 }
                 "stopBle" -> { bleBridge?.stop(); result.success(true) }
                 "unbindBle" -> {
-                    // Node teardown: drop the bridge's node handle but keep the
-                    // radio/peer link up, so restart re-binds without a flap.
-                    bleBridge?.unbind(); result.success(true)
+                    // Node teardown: drop both carriers' node handles but keep
+                    // the links up, so restart re-binds without a flap.
+                    bleBridge?.unbind()
+                    wifiDirectBridge?.unbind()
+                    result.success(true)
                 }
                 "clearGlobalNodeHandle" -> {
                     // Release the native global's owning node reference on node
@@ -134,10 +148,23 @@ class MainActivity : FlutterActivity() {
                         return@setMethodCallHandler
                     }
                     val wd = wifiDirect ?: WifiDirectManager(applicationContext).also { wifiDirect = it }
+                    // Stand up the P2PWiFi frame tunnel and wire it to the group
+                    // lifecycle + the shared outbound dispatch (BleBridge owns
+                    // the single JNI subscription and mirrors frames to us).
+                    val tunnel = wifiDirectBridge ?: WifiDirectBridge().also { wifiDirectBridge = it }
+                    wd.onGroupFormed = { isGroupOwner, goAddress ->
+                        tunnel.start(isGroupOwner, goAddress)
+                    }
+                    wd.onGroupLost = { tunnel.stop() }
                     result.success(wd.start())
                 }
-                "stopWifiDirect" -> { wifiDirect?.stop(); result.success(true) }
+                "stopWifiDirect" -> {
+                    wifiDirectBridge?.stop()
+                    wifiDirect?.stop()
+                    result.success(true)
+                }
                 "wifiDirectStatus" -> result.success(wifiDirect?.statusInfo() ?: mapOf("status" to "idle"))
+                "wifiTunnelPeers" -> result.success(if (wifiDirectBridge?.isConnected() == true) 1 else 0)
                 else -> result.notImplemented()
             }
         }
@@ -149,6 +176,8 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         bleBridge?.stop()
         bleBridge = null
+        wifiDirectBridge?.stop()
+        wifiDirectBridge = null
         wifiDirect?.stop()
         wifiDirect = null
         multicastLock?.let { if (it.isHeld) it.release() }

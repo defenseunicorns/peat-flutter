@@ -88,6 +88,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
   static const MethodChannel _wifiChannel = MethodChannel('peat/wifidirect');
   bool _wifiDirectOn = false;
   String _wifiDirectStatus = 'idle';
+  int _wifiTunnelPeers = 0; // P2PWiFi TCP-tunnel link state (0/1)
   final List<_ChangeEntry> _changeLog = [];
   Timer? _changeLogTimer; // drives relative-time refresh
   // Content hashes: key → hash of last-seen raw JSON.
@@ -416,6 +417,13 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                 setState(() => _wifiDirectStatus = s);
               }
             }).catchError((_) {});
+            // Tunnel connection state (the real P2PWiFi carrier link), not the
+            // dead iroh peer set.
+            _wifiChannel.invokeMethod<int>('wifiTunnelPeers').then((c) {
+              if (mounted && c != null && c != _wifiTunnelPeers) {
+                setState(() => _wifiTunnelPeers = c);
+              }
+            }).catchError((_) {});
           }
           // Liveness uses LOCAL receipt time, not the peer's clock-stamped
           // `lastHeartbeat`. Comparing a remote heartbeat against our own
@@ -439,15 +447,24 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                   (n.id == _nodeId ||
                       _peers.contains(n.id) ||
                       (_nodeSeenLocal[n.id] ?? 0) >= liveCutoff))
-              .toList()
-            ..sort((a, b) =>
-                (_nodeSeenLocal[b.id] ?? 0).compareTo(_nodeSeenLocal[a.id] ?? 0));
-          // Keep most-recent entry per callsign name
+              .toList();
+          // Keep most-recent entry per callsign name (dedup reconnects with a
+          // new node id), preferring the freshest by local-receipt time.
+          allNodes.sort((a, b) =>
+              (_nodeSeenLocal[b.id] ?? 0).compareTo(_nodeSeenLocal[a.id] ?? 0));
           final byName = <String, NodeInfo>{};
           for (final n in allNodes) {
             byName[n.name] ??= n;
           }
-          _roster = byName.values.toList();
+          // STABLE display order: self first, then by callsign. Sorting the
+          // displayed roster by last-receipt made rows leapfrog every few
+          // seconds (both nodes heartbeat every 4s) — the "bouncing" roster.
+          _roster = byName.values.toList()
+            ..sort((a, b) {
+              if (a.id == _nodeId) return -1;
+              if (b.id == _nodeId) return 1;
+              return a.name.compareTo(b.name);
+            });
         });
       });
 
@@ -1721,39 +1738,47 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                         final sinceSeen = DateTime.now().millisecondsSinceEpoch -
                             (_nodeSeenLocal[n.id] ?? 0);
                         final isConnected = isMe || sinceSeen < 25000;
-                        // Which carrier is delivering. BLE is the working Android
-                        // transport; iroh (_peers) is shown only if it's actually
-                        // up. (Per-peer multi-transport badges come with the
-                        // Wi-Fi Direct TCP tunnel work.)
-                        final overWifi = !isMe && _peers.contains(n.id);
-                        final overBle = !isMe && isConnected && _blePeerCount > 0;
-                        IconData icon;
-                        Color color;
+                        // Per-peer transport badges: show EVERY live carrier so
+                        // BLE + P2PWiFi appear together when both are up. These
+                        // are app-level carrier links (BLE mesh / Wi-Fi Direct
+                        // TCP tunnel); for the 2-node demo they're global, shown
+                        // against the live peer. iroh's _peers is intentionally
+                        // not used (dead on these phones).
+                        const bleBlue = Color(0xFF2196F3);
+                        final bleUp = !isMe && isConnected && _blePeerCount > 0;
+                        final wifiUp = !isMe && isConnected && _wifiTunnelPeers > 0;
+                        final transports = <Widget>[];
                         if (isMe) {
-                          icon = Icons.person;
-                          color = theme.colorScheme.primary;
-                        } else if (overBle) {
-                          // BLE is the stable carrier — show it first. (iroh
-                          // briefly populates _peers on connect then dies on
-                          // these phones; preferring it caused a wifi→ble icon
-                          // flicker.) Wi-Fi only wins when BLE isn't live.
-                          icon = Icons.bluetooth;
-                          color = const Color(0xFF2196F3); // BLE blue when active
-                        } else if (overWifi) {
-                          icon = Icons.wifi;
-                          color = Colors.green;
-                        } else if (isConnected) {
-                          icon = Icons.lan; // live but carrier unknown
-                          color = Colors.green;
+                          transports.add(Icon(Icons.person,
+                              size: 14, color: theme.colorScheme.primary));
+                        } else if (!isConnected) {
+                          transports.add(Icon(Icons.bluetooth_disabled,
+                              size: 14, color: theme.colorScheme.outline));
                         } else {
-                          icon = Icons.bluetooth_disabled;
-                          color = theme.colorScheme.outline;
+                          if (bleUp) {
+                            transports.add(const Icon(Icons.bluetooth,
+                                size: 14, color: bleBlue));
+                          }
+                          if (wifiUp) {
+                            transports.add(const Icon(Icons.wifi,
+                                size: 14, color: Colors.green));
+                          }
+                          if (transports.isEmpty) {
+                            // Live (heartbeating) but carrier flags not up yet.
+                            transports.add(const Icon(Icons.lan,
+                                size: 14, color: Colors.green));
+                          }
                         }
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 3),
                           child: Row(children: [
-                            // Connection / transport indicator
-                            Icon(icon, size: 14, color: color),
+                            // One badge per live carrier (BLE blue, Wi-Fi green).
+                            Row(mainAxisSize: MainAxisSize.min, children: [
+                              for (var i = 0; i < transports.length; i++) ...[
+                                if (i > 0) const SizedBox(width: 2),
+                                transports[i],
+                              ],
+                            ]),
                             const SizedBox(width: 6),
                             Expanded(
                               child: Column(
@@ -2052,7 +2077,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                 if (_syncStats != null) ...[
                   _aboutRow(theme, 'Sent', '${_syncStats!.bytesSent} B'),
                   _aboutRow(theme, 'Received', '${_syncStats!.bytesReceived} B'),
-                  _aboutRow(theme, 'Peers (Wi-Fi)', '${_peers.length} connected'),
+                  _aboutRow(theme, 'Peers (Wi-Fi)', '$_wifiTunnelPeers connected'),
                 ],
                 if (Platform.isAndroid && _bleRunning)
                   _aboutRow(theme, 'Peers (BLE)', '$_blePeerCount connected'),

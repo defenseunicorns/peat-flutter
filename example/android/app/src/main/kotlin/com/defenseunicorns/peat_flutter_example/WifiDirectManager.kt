@@ -13,12 +13,6 @@ import android.net.wifi.p2p.WifiP2pManager
 import android.os.Looper
 import android.util.Log
 import androidx.core.content.ContextCompat
-import com.defenseunicorns.peat.PeatJni
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.net.InetSocketAddress
-import java.net.ServerSocket
-import java.net.Socket
 
 /**
  * Infrastructure-free Wi-Fi Direct (P2P) LAN between two devices.
@@ -39,11 +33,7 @@ class WifiDirectManager(private val context: Context) {
 
     companion object {
         private const val TAG = "WifiDirect"
-        // Fixed port for the (nodeId, irohPort) handshake over the P2P link.
-        private const val HANDSHAKE_PORT = 47625
     }
-
-    @Volatile private var handshakeThread: Thread? = null
 
     private val manager: WifiP2pManager? =
         context.getSystemService(Context.WIFI_P2P_SERVICE) as? WifiP2pManager
@@ -83,6 +73,14 @@ class WifiDirectManager(private val context: Context) {
 
     // Avoid hammering connect() on every PEERS_CHANGED tick.
     private val attempted = java.util.Collections.synchronizedSet(HashSet<String>())
+
+    // Fired when the P2P group forms (owner role + group-owner address known).
+    // The owner of the WifiDirectBridge tunnel hooks this to start carrying
+    // fan-out frames over the link. Replaces the old iroh (nodeId,port)
+    // handshake — iroh's QUIC/UDP can't survive the Android p2p interface.
+    @Volatile var onGroupFormed: ((isGroupOwner: Boolean, goAddress: String?) -> Unit)? = null
+    // Fired when the group/link goes away, so the tunnel can stand down.
+    @Volatile var onGroupLost: (() -> Unit)? = null
 
     fun isRunning(): Boolean = channel != null
 
@@ -201,107 +199,12 @@ class WifiDirectManager(private val context: Context) {
                 groupOwnerAddress = info.groupOwnerAddress?.hostAddress
                 status = if (info.isGroupOwner) "group_owner" else "client"
                 Log.i(TAG, "GROUP FORMED owner=${info.isGroupOwner} go=$groupOwnerAddress")
-                startHandshake()
+                onGroupFormed?.invoke(info.isGroupOwner, groupOwnerAddress)
             } else {
                 status = "discovering"
                 groupOwner = false
                 groupOwnerAddress = null
-            }
-        }
-    }
-
-    // ---- (nodeId, irohPort) handshake over the P2P link, then connectPeerJni ----
-    // iroh can't announce its own address on Android (mDNS dead), so we exchange
-    // identities out-of-band over a TCP socket on the formed P2P LAN and dial
-    // explicitly. The GO runs a tiny server on 192.168.49.1:HANDSHAKE_PORT; the
-    // client connects. Each sends "nodeId:irohPort"; both then connectPeerJni.
-
-    private fun startHandshake() {
-        if (handshakeThread?.isAlive == true) return
-        val t = Thread({ runHandshake() }, "peat-wd-handshake").apply { isDaemon = true }
-        handshakeThread = t
-        t.start()
-    }
-
-    private fun runHandshake() {
-        var handle = 0L; var myPort = -1; var myNodeId = ""
-        // Wait for the peat-ffi node to be up (handle + bound iroh port).
-        for (i in 0 until 60) {
-            if (Thread.currentThread().isInterrupted) return
-            try {
-                handle = PeatJni.getGlobalNodeHandleJni()
-                if (handle != 0L) {
-                    myNodeId = PeatJni.nodeIdJni(handle)
-                    myPort = parsePort(PeatJni.endpointSocketAddrJni(handle))
-                }
-            } catch (t: Throwable) { Log.e(TAG, "handshake: JNI not ready", t) }
-            if (handle != 0L && myPort > 0 && myNodeId.isNotEmpty()) break
-            try { Thread.sleep(500) } catch (_: InterruptedException) { return }
-        }
-        if (handle == 0L || myPort <= 0 || myNodeId.isEmpty()) {
-            Log.e(TAG, "handshake: node not ready (handle=$handle port=$myPort)"); return
-        }
-        Log.i(TAG, "handshake ready: nodeId=${myNodeId.take(16)} irohPort=$myPort owner=$groupOwner")
-        try {
-            if (groupOwner) runHandshakeServer(handle, myNodeId, myPort)
-            else runHandshakeClient(handle, myNodeId, myPort)
-        } catch (t: Throwable) { Log.e(TAG, "handshake failed", t) }
-    }
-
-    private fun parsePort(sockAddr: String?): Int {
-        if (sockAddr == null) return -1
-        val idx = sockAddr.lastIndexOf(':')
-        return if (idx < 0) -1 else sockAddr.substring(idx + 1).toIntOrNull() ?: -1
-    }
-
-    private fun runHandshakeServer(handle: Long, myNodeId: String, myPort: Int) {
-        ServerSocket().use { server ->
-            server.reuseAddress = true
-            server.bind(InetSocketAddress(HANDSHAKE_PORT))
-            Log.i(TAG, "handshake server on :$HANDSHAKE_PORT")
-            while (status == "group_owner" && !Thread.currentThread().isInterrupted) {
-                val sock = try { server.accept() } catch (e: Exception) { break }
-                sock.use { s ->
-                    val line = BufferedReader(InputStreamReader(s.getInputStream())).readLine()
-                        ?: return@use
-                    val parts = line.trim().split(":")
-                    if (parts.size < 2) return@use
-                    val peerNodeId = parts[0]
-                    val peerPort = parts[1].toIntOrNull() ?: return@use
-                    val peerIp = s.inetAddress?.hostAddress ?: return@use
-                    s.getOutputStream().apply { write("$myNodeId:$myPort\n".toByteArray()); flush() }
-                    Log.i(TAG, "handshake(server): peer ${peerNodeId.take(16)} @ $peerIp:$peerPort")
-                    val ok = PeatJni.connectPeerJni(handle, peerNodeId, "$peerIp:$peerPort")
-                    Log.i(TAG, "connectPeerJni(server) -> $ok")
-                }
-            }
-        }
-    }
-
-    private fun runHandshakeClient(handle: Long, myNodeId: String, myPort: Int) {
-        val go = groupOwnerAddress ?: run { Log.e(TAG, "handshake(client): no GO addr"); return }
-        for (attempt in 0 until 30) {
-            if (Thread.currentThread().isInterrupted || isConnected().not()) {
-                if (isConnected().not()) return
-            }
-            try {
-                Socket().use { s ->
-                    s.connect(InetSocketAddress(go, HANDSHAKE_PORT), 3000)
-                    s.getOutputStream().apply { write("$myNodeId:$myPort\n".toByteArray()); flush() }
-                    val line = BufferedReader(InputStreamReader(s.getInputStream())).readLine()
-                        ?: return
-                    val parts = line.trim().split(":")
-                    if (parts.size < 2) return
-                    val goNodeId = parts[0]
-                    val goPort = parts[1].toIntOrNull() ?: return
-                    Log.i(TAG, "handshake(client): GO ${goNodeId.take(16)} @ $go:$goPort")
-                    val ok = PeatJni.connectPeerJni(handle, goNodeId, "$go:$goPort")
-                    Log.i(TAG, "connectPeerJni(client) -> $ok")
-                }
-                return
-            } catch (e: Exception) {
-                Log.i(TAG, "handshake(client) attempt $attempt: ${e.message}; retry")
-                try { Thread.sleep(1500) } catch (_: InterruptedException) { return }
+                onGroupLost?.invoke()
             }
         }
     }
@@ -310,8 +213,7 @@ class WifiDirectManager(private val context: Context) {
 
     fun stop() {
         handler.removeCallbacks(rediscover)
-        handshakeThread?.interrupt()
-        handshakeThread = null
+        onGroupLost?.invoke()
         val mgr = manager
         val ch = channel
         receiver?.let { try { context.unregisterReceiver(it) } catch (_: Exception) {} }
