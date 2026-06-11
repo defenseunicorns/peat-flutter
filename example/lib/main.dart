@@ -1186,23 +1186,30 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                   color: statusColor,
                 ),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 6),
+              // Single row: liters + who set it on the left, percent on the
+              // right. (Was three cramped, overlapping lines.)
               Row(children: [
                 Text(
                   '${current}L / ${required}L',
                   style: theme.textTheme.bodySmall
                       ?.copyWith(fontWeight: FontWeight.bold, color: statusColor),
                 ),
+                if (_missionSetBy != null)
+                  Flexible(
+                    child: Text(
+                      '  ·  set by $_missionSetBy',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.outline, fontSize: 11),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                 const Spacer(),
                 Text(
                   '${(pct * 100).round()}%',
                   style: theme.textTheme.bodySmall?.copyWith(color: statusColor),
                 ),
               ]),
-              if (_missionSetBy != null)
-                Text('set by: $_missionSetBy',
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: theme.colorScheme.outline, fontSize: 10)),
             ] else if (!isLeader)
               Text('Awaiting mission objective from leader.',
                   style: theme.textTheme.bodySmall
@@ -1609,21 +1616,6 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                         ),
                       ],
                     ),
-                    if (_counterLastBy != null && _counterValue > 0) ...[
-                    const SizedBox(height: 2),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                          Text(
-                            '✎ $_counterLastBy',
-                            style: theme.textTheme.bodySmall
-                                ?.copyWith(color: theme.colorScheme.outline,
-                                    fontSize: 10),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                      ],
-                    ),
-                    ], // counterLastBy
                   ],
                 ),
               ),
