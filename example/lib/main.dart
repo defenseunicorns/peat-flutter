@@ -192,19 +192,18 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
         '${_callsignPool[rng.nextInt(_callsignPool.length)]}-${rng.nextInt(90) + 10}';
     _callsignCtrl = TextEditingController(text: _hostName);
     _callsignPrev = _hostName;
-    // Load persisted callsign + capabilities (override the per-platform
-    // defaults if saved) so an assigned role like 'leader' survives a restart.
+    // Load persisted callsign (device identity) from prefs. Capabilities are
+    // NOT persisted here — they live in this node's Peat document and are
+    // restored from the store on node start (see _startNode), so a database
+    // reset clears them (correct) and they still sync to peers + survive a
+    // restart via the store.
     SharedPreferences.getInstance().then((prefs) {
       final saved = prefs.getString('callsign');
-      final savedCaps = prefs.getStringList('capabilities');
       if (mounted) {
         setState(() {
           if (saved != null && saved.isNotEmpty) {
             _callsignCtrl.text = saved;
             _callsignPrev = saved;
-          }
-          if (savedCaps != null && savedCaps.isNotEmpty) {
-            _myCapabilities = savedCaps;
           }
         });
       }
@@ -298,6 +297,19 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
         _refreshCounter(_node!);
         _refreshMission(_node!);
       });
+
+      // Restore my capabilities from MY node document in the store (the Peat
+      // document — NOT app prefs), if a prior session persisted them. Must run
+      // before the first _publishSelf so stored caps win over the platform
+      // default. A database reset wipes the store, so this finds nothing and
+      // falls through to the default — exactly the desired reset behavior.
+      final selfCaps = node.nodes
+          .where((n) => n.id == node.nodeId && n.capabilities.isNotEmpty)
+          .toList();
+      if (selfCaps.isNotEmpty) {
+        _myCapabilities = selfCaps.first.capabilities;
+        if (mounted) setState(() {});
+      }
 
       // Publish this node's presence + current counter into the mesh
       // immediately on start, so a node that just restarted pushes its own
@@ -1870,11 +1882,9 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                                     .toList();
                               }
                             });
-                            // Persist so the assignment (e.g. 'leader') survives
-                            // an app restart instead of resetting to the platform
-                            // default, and re-publish so peers see it now.
-                            SharedPreferences.getInstance().then((p) =>
-                                p.setStringList('capabilities', _myCapabilities));
+                            // Re-publish so peers see the change and it's
+                            // persisted in this node's Peat document (the store),
+                            // NOT app prefs — a database reset then clears it.
                             if (_node != null) _publishSelf(_node!);
                           },
                           visualDensity: VisualDensity.compact,
