@@ -1,7 +1,12 @@
 package com.defenseunicorns.peat_flutter_example
 
+import android.bluetooth.BluetoothAdapter
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.defenseunicorns.peat.OutboundFrameListener
 import com.defenseunicorns.peat.PeatBtle
 import com.defenseunicorns.peat.PeatEventType
@@ -45,6 +50,7 @@ class BleBridge(private val context: Context) : PeatMeshListener {
 
     private var peatBtle: PeatBtle? = null
     @Volatile private var handle: Long = 0L
+    private var btStateReceiver: BroadcastReceiver? = null
     // Distinct BLE peers currently connected (deduped; onPeerConnected can fire
     // twice for the central+peripheral roles). Surfaced to the Flutter UI so the
     // BLE link is visible even though the app's iroh peer-count stays 0.
@@ -54,60 +60,141 @@ class BleBridge(private val context: Context) : PeatMeshListener {
 
     fun peerCount(): Int = connectedPeers.size
 
-    fun start(): Boolean {
-        if (peatBtle != null) {
-            Log.w(TAG, "already running")
-            return true
+    // Outbound: every frame the mesh fans out for a BLE transport gets wrapped
+    // and broadcast over the radio. Held as a field so start() can re-subscribe
+    // it to a NEW node (on node restart) without recreating it — the JNI
+    // subscribe is replaceable (swaps the global listener slot).
+    private val outboundListener = object : OutboundFrameListener {
+        override fun onFrame(transportId: String, collection: String, bytes: ByteArray) {
+            val btle = peatBtle ?: return
+            try {
+                btle.broadcastBytes(wrap(transportId, collection, bytes))
+                Log.d(TAG, "outbound [$transportId/$collection] ${bytes.size}B")
+            } catch (t: Throwable) {
+                Log.e(TAG, "broadcastBytes failed", t)
+            }
         }
-        handle = try {
+    }
+
+    /// Start the radio, or — if it's already up (node restart) — just RE-BIND
+    /// to the current node. Tearing the radio down + re-initializing PeatBtle
+    /// on a node restart did not reconnect cleanly ("no connection after
+    /// restart"); keeping it up and only re-pointing the outbound subscription
+    /// + handle at the new node makes stop/restart converge while the BLE link
+    /// stays connected.
+    fun start(): Boolean {
+        val h = try {
             PeatJni.getGlobalNodeHandleJni()
         } catch (t: Throwable) {
             Log.e(TAG, "getGlobalNodeHandleJni failed", t); 0L
         }
-        if (handle == 0L) {
+        if (h == 0L) {
             Log.e(TAG, "no peat-ffi node handle yet — start the node first")
             return false
         }
+        handle = h
 
-        // Outbound: every frame the mesh fans out for a BLE transport gets
-        // wrapped and broadcast over the radio.
+        // (Re)bind the current node's fan-out to the radio.
         try {
-            PeatJni.subscribeOutboundFramesJni(handle, object : OutboundFrameListener {
-                override fun onFrame(transportId: String, collection: String, bytes: ByteArray) {
-                    val btle = peatBtle ?: return
-                    try {
-                        btle.broadcastBytes(wrap(transportId, collection, bytes))
-                        Log.d(TAG, "outbound [$transportId/$collection] ${bytes.size}B")
-                    } catch (t: Throwable) {
-                        Log.e(TAG, "broadcastBytes failed", t)
-                    }
-                }
-            })
+            PeatJni.subscribeOutboundFramesJni(handle, outboundListener)
         } catch (t: Throwable) {
             Log.e(TAG, "subscribeOutboundFramesJni failed", t)
         }
-
         try { PeatJni.bleSetStartedJni(handle, true) } catch (t: Throwable) { Log.e(TAG, "bleSetStarted failed", t) }
 
+        // Listen for OS Bluetooth adapter on/off so the mesh recovers when the
+        // user toggles Bluetooth (the comms-denied / recovery demo). Without
+        // this, peat-btle's radio dies silently on OFF and never comes back.
+        registerBtStateReceiver()
+
+        if (peatBtle != null) {
+            // Radio already up (node restart): we just re-bound to the new node.
+            Log.i(TAG, "BLE bridge re-bound to handle=$handle (radio kept up)")
+            return true
+        }
+        return bringUpRadio()
+    }
+
+    /// Create + start the peat-btle radio. No-op if already up. Used by start()
+    /// and by the Bluetooth-ON adapter event to re-establish the mesh.
+    private fun bringUpRadio(): Boolean {
+        if (peatBtle != null) return true
         return try {
             val btle = PeatBtle(context = context, meshId = MESH_ID)
             btle.init()
             btle.startMesh(this)
             peatBtle = btle
-            Log.i(TAG, "BLE bridge started (meshId=$MESH_ID, nodeId=${btle.nodeId})")
+            Log.i(TAG, "BLE radio up (meshId=$MESH_ID, nodeId=${btle.nodeId})")
             true
         } catch (t: Throwable) {
             Log.e(TAG, "PeatBtle start failed", t)
-            try { PeatJni.bleSetStartedJni(handle, false) } catch (_: Throwable) {}
+            if (handle != 0L) try { PeatJni.bleSetStartedJni(handle, false) } catch (_: Throwable) {}
             false
         }
     }
 
+    private fun registerBtStateReceiver() {
+        if (btStateReceiver != null) return
+        val rx = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                if (intent?.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
+                when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
+                    BluetoothAdapter.STATE_OFF -> {
+                        // Radio gone: drop the now-dead peat-btle instance + peers.
+                        Log.w(TAG, "Bluetooth OFF — tearing down mesh")
+                        peatBtle?.let { try { it.stopMesh() } catch (_: Throwable) {} }
+                        peatBtle = null
+                        connectedPeers.clear()
+                        if (handle != 0L) try { PeatJni.bleSetStartedJni(handle, false) } catch (_: Throwable) {}
+                    }
+                    BluetoothAdapter.STATE_ON -> {
+                        // Radio back: re-establish the mesh against the bound node.
+                        // A fresh PeatBtle on the now-enabled adapter reconnects;
+                        // the 4s heartbeat re-advertise then re-converges state.
+                        Log.i(TAG, "Bluetooth ON — re-establishing mesh")
+                        if (handle != 0L && bringUpRadio()) {
+                            try { PeatJni.bleSetStartedJni(handle, true) } catch (_: Throwable) {}
+                        }
+                    }
+                }
+            }
+        }
+        ContextCompat.registerReceiver(
+            context,
+            rx,
+            IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        btStateReceiver = rx
+        Log.i(TAG, "registered Bluetooth adapter-state receiver")
+    }
+
+    private fun unregisterBtStateReceiver() {
+        btStateReceiver?.let { try { context.unregisterReceiver(it) } catch (_: Throwable) {} }
+        btStateReceiver = null
+    }
+
+    /// Drop the node handle WITHOUT stopping the radio. Called on node teardown
+    /// so a late inbound frame can't call ingest*FrameJni with a freed pointer
+    /// (handle == 0 makes the JNI a no-op), while the BLE link stays connected
+    /// so the peer doesn't see a disconnect. start() re-binds the new node.
+    fun unbind() {
+        if (handle != 0L) try { PeatJni.bleSetStartedJni(handle, false) } catch (_: Throwable) {}
+        handle = 0L
+        Log.i(TAG, "BLE bridge unbound from node (radio kept up)")
+    }
+
     fun stop() {
+        unregisterBtStateReceiver()
         peatBtle?.let { try { it.stopMesh() } catch (t: Throwable) { Log.e(TAG, "stopMesh failed", t) } }
         peatBtle = null
         connectedPeers.clear()
         if (handle != 0L) try { PeatJni.bleSetStartedJni(handle, false) } catch (_: Throwable) {}
+        // Drop the node handle: it's about to be (or already) freed by node
+        // teardown. A late inbound frame must NOT call ingest*FrameJni with a
+        // stale/freed pointer (UAF) — handle == 0 makes the JNI layer no-op.
+        // start() re-fetches the fresh handle via getGlobalNodeHandleJni.
+        handle = 0L
         Log.i(TAG, "BLE bridge stopped")
     }
 

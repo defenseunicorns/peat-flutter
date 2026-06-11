@@ -298,19 +298,40 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
         _refreshMission(_node!);
       });
 
-      // Publish this node's presence into the mesh.
+      // Publish this node's presence + current counter into the mesh
+      // immediately on start, so a node that just restarted pushes its own
+      // state to the peer near-instantly (rather than waiting for the first
+      // heartbeat). The peer's state comes back via its heartbeat re-advertise.
       _publishSelf(node);
+      _flushMyCounter(node);
 
       var _heartbeatTick = 0;
       _peerTimer = Timer.periodic(const Duration(seconds: 2), (_) {
         if (!mounted || _node == null) return;
         // Re-publish self every 2 min to keep heartbeat fresh for peers.
         _heartbeatTick++;
-        if (_heartbeatTick >= 10) { // 10 × 2s = 20s — well inside the 3-min
-          // roster-freshness window, so a missed beat (BLE hiccup, brief
-          // iroh-over-WiFiDirect connect/drop) doesn't age a live peer out.
+        if (_heartbeatTick >= 2) { // 2 × 2s = 4s. Bounds comms-recovery
+          // convergence: with the BLE radio kept up across a node restart,
+          // neither side sees a disconnect/reconnect edge, so this steady
+          // re-advertise is what makes a reconnecting node catch up — at 20s
+          // that was a ~10s average lag (unacceptable for the demo); 4s caps
+          // worst-case convergence at one beat. Traffic stays modest (a few
+          // small frames/node) and ingestion is idempotent + echo-suppressed.
           _heartbeatTick = 0;
           _publishSelf(_node!);
+          // Re-broadcast owned shared state every beat so a peer that was
+          // OFFLINE and reconnects converges to current within ~20s — without
+          // depending on the BLE peer-count rising edge (BLE disconnect
+          // detection lags, so the still-online node may never see a 0→1 edge
+          // to trigger a one-shot re-push). The fan-out is otherwise
+          // change-driven; this is the steady re-advertise that makes
+          // comms-recovery / convergence-on-reconnect reliable. Re-publishing
+          // an unchanged CRDT doc is idempotent on the receiver.
+          _flushMyCounter(_node!);
+          if (_missionDays > 0) _republishMission(_node!);
+          if (_myCapabilities.contains('leader') && _roster.isNotEmpty) {
+            _formCell();
+          }
         }
         // Clean up ghost entries that may have synced in from the peer.
         _cleanGhostNodes(_node!);
@@ -591,11 +612,21 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
     if (_node != null) return; // must be stopped first
     try {
       final dir = await getApplicationSupportDirectory();
-      final peatDir = Directory('${dir.path}/peat');
-      if (await peatDir.exists()) {
-        await peatDir.delete(recursive: true);
+      // The node's store is "${dir}/peat-<installId>" (unique per install to
+      // avoid node-id collisions). The old code deleted a hard-coded
+      // "${dir}/peat" that never existed, so reset silently did nothing.
+      // Delete every "peat" / "peat-*" store dir here.
+      var removed = 0;
+      if (await dir.exists()) {
+        await for (final entry in dir.list()) {
+          final name = entry.path.split(Platform.pathSeparator).last;
+          if (entry is Directory && (name == 'peat' || name.startsWith('peat-'))) {
+            await entry.delete(recursive: true);
+            removed++;
+          }
+        }
       }
-      // Reset in-memory counter state
+      // Reset in-memory state
       setState(() {
         _myInc = 0;
         _myDec = 0;
@@ -611,8 +642,19 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
         _missionSetBy = null;
         _error = null;
       });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(removed > 0
+              ? 'Local database reset — $removed store${removed == 1 ? '' : 's'} cleared. Start the node for a clean slate.'
+              : 'No local store found — already clean.'),
+        ));
+      }
     } catch (e) {
       setState(() => _error = 'Reset failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Reset failed: $e')));
+      }
     }
   }
 
@@ -1350,6 +1392,17 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
     _peerTimer?.cancel();
     _counterTimer?.cancel();
     _changeLogTimer?.cancel();
+    // UNBIND the BLE bridge from this node BEFORE freeing it — without
+    // stopping the radio. The bridge's outbound subscription is bound to this
+    // node; unbinding drops its handle (so a late inbound frame can't touch
+    // the freed node) while keeping the BLE link connected. On restart,
+    // _startBle → BleBridge.start() RE-BINDS the new node (re-subscribes
+    // outbound + new handle). (Fully stopping/re-initializing the radio here
+    // did not reconnect cleanly — "no connection after restart"; and leaving
+    // it bound to the old node left it "running but deaf".)
+    if (Platform.isAndroid) {
+      _bleChannel.invokeMethod('unbindBle').catchError((_) => null);
+    }
     try { _node?.dispose(); } catch (_) {}
     // Release the native global's owning reference to the node (set by
     // create_node) so the node can actually be freed now that Dart has
@@ -1679,12 +1732,16 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                         if (isMe) {
                           icon = Icons.person;
                           color = theme.colorScheme.primary;
+                        } else if (overBle) {
+                          // BLE is the stable carrier — show it first. (iroh
+                          // briefly populates _peers on connect then dies on
+                          // these phones; preferring it caused a wifi→ble icon
+                          // flicker.) Wi-Fi only wins when BLE isn't live.
+                          icon = Icons.bluetooth;
+                          color = const Color(0xFF2196F3); // BLE blue when active
                         } else if (overWifi) {
                           icon = Icons.wifi;
                           color = Colors.green;
-                        } else if (overBle) {
-                          icon = Icons.bluetooth;
-                          color = const Color(0xFF2196F3); // BLE blue when active
                         } else if (isConnected) {
                           icon = Icons.lan; // live but carrier unknown
                           color = Colors.green;

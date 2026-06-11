@@ -89,6 +89,11 @@ class MainActivity : FlutterActivity() {
                     result.success(bridge.start())
                 }
                 "stopBle" -> { bleBridge?.stop(); result.success(true) }
+                "unbindBle" -> {
+                    // Node teardown: drop the bridge's node handle but keep the
+                    // radio/peer link up, so restart re-binds without a flap.
+                    bleBridge?.unbind(); result.success(true)
+                }
                 "clearGlobalNodeHandle" -> {
                     // Release the native global's owning node reference on node
                     // teardown (see peat#978). Safe no-op if nothing is stored.
