@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  iroh local discovery (peat_mesh::discovery::MdnsDiscovery, backed by the
+	  swarm-discovery crate) uses RAW UDP multicast on 224.0.0.251 / ff02::fb
+	  port 5353 — not Apple's Bonjour API. iOS silently drops raw multicast
+	  send/receive unless the app holds this entitlement, which is why two iOS
+	  devices can each reach a Mac (relay/DNS path) but never discover each
+	  other directly on the LAN.
+
+	  This entitlement is Apple-restricted: it must be granted for the App ID
+	  via the "Multicast Networking Entitlement Request" form
+	  (https://developer.apple.com/contact/request/networking-multicast)
+	  before Automatic signing can produce a provisioning profile that
+	  includes it. Until granted, signed builds will fail with a missing-
+	  entitlement error.
+	-->
+	<key>com.apple.developer.networking.multicast</key>
+	<true/>
+</dict>
+</plist>

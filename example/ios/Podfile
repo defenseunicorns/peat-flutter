@@ -62,14 +62,15 @@ post_install do |installer|
         config.build_settings['STRIP_INSTALLED_PRODUCT'] = 'NO'
         flags = config.build_settings['OTHER_LDFLAGS'] || ['$(inherited)']
         flags = [flags] if flags.is_a?(String)
-        [
-          '-all_load',
-          '-Xlinker', '-export_dynamic',
-          '-framework', 'Network',
-          '-framework', 'Security',
-          '-framework', 'SystemConfiguration',
-          '-framework', 'CoreBluetooth',
-        ].each { |f| flags << f }
+        # Append idempotently: pod install runs on every build, so guard each
+        # flag to keep OTHER_LDFLAGS from growing on repeated installs.
+        add = lambda { |*fs| flags.concat(fs) unless fs.all? { |f| flags.include?(f) } }
+        add.call('-all_load')
+        add.call('-Xlinker', '-export_dynamic')
+        add.call('-framework', 'Network')
+        add.call('-framework', 'Security')
+        add.call('-framework', 'SystemConfiguration')
+        add.call('-framework', 'CoreBluetooth')
         config.build_settings['OTHER_LDFLAGS'] = flags
       end
     end

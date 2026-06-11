@@ -5,6 +5,12 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+repositories {
+    mavenLocal()   // peat-btle 0.4.0 AAR published via `gradlew publishToMavenLocal`
+    google()
+    mavenCentral()
+}
+
 android {
     namespace = "com.defenseunicorns.peat_flutter_example"
     compileSdk = flutter.compileSdkVersion
@@ -24,7 +30,8 @@ android {
         applicationId = "com.defenseunicorns.peat_flutter_example"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // peat-btle requires API 26+ (BLE mesh); raise from flutter.minSdkVersion.
+        minSdk = maxOf(26, flutter.minSdkVersion)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -41,4 +48,12 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // peat-btle Android: BLE mesh transport (scan/advertise/GATT + uniffi.peat_btle
+    // core). Used as an opaque encrypted carrier — BleBridge pipes peat-ffi mesh
+    // frames through PeatBtle.broadcastBytes / onDecryptedData. Transitive deps
+    // (jna, kotlinx-coroutines, androidx.core) come via the AAR's POM.
+    implementation("com.defenseunicorns:peat-btle:0.4.0")
 }

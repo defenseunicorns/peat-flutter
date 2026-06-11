@@ -65,7 +65,10 @@ task buildRustAndroid(type: Exec) {
         '-o', "${projectDir}/src/main/jniLibs",
         'build', '--release',
         '-p', 'peat-ffi',
-        '--features', 'sync,bluetooth'
+        // lite-bridge: universal Document (peat-lite) transport over BLE, so raw
+        // collections (e.g. the 'demo' counter) fan out as ble-lite frames in
+        // addition to the typed 0xB6 BleTranslator path.
+        '--features', 'sync,bluetooth,lite-bridge'
 
     // Teach Gradle when to skip this task (UP-TO-DATE check).
     // Gradle re-runs only when Rust source or Cargo files change; incremental

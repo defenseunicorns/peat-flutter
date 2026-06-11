@@ -4,10 +4,10 @@ import 'dart:io' show Platform, Directory;
 import 'dart:math' show min, Random;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show SystemUiOverlayStyle, SystemChrome;
+import 'package:flutter/services.dart' show SystemUiOverlayStyle, SystemChrome, MethodChannel;
 import 'package:path_provider/path_provider.dart';
 import 'package:peat_flutter/peat_flutter.dart';
-import 'package:peat_flutter/src/generated/peat_ffi.dart' show SyncStats;
+import 'package:peat_flutter/src/generated/peat_ffi.dart' show SyncStats, TransportConfigFFI;
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// A single document change event for the activity feed.
@@ -81,6 +81,14 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
   bool _stopping = false;
   bool _bleRunning = false;
   int _bleFrameCount = 0;
+  int _blePeerCount = 0; // connected BLE peers (Android peat-btle bridge)
+  // Android BLE transport bridge (peat-btle pipe) lives in native MainActivity.
+  static const MethodChannel _bleChannel = MethodChannel('peat/ble');
+  // Android Wi-Fi Direct (P2P) link — forms an infra-free LAN; iroh syncs over it.
+  static const MethodChannel _wifiChannel = MethodChannel('peat/wifidirect');
+  bool _wifiDirectOn = false;
+  String _wifiDirectStatus = 'idle';
+  int _wifiTunnelPeers = 0; // P2PWiFi TCP-tunnel link state (0/1)
   final List<_ChangeEntry> _changeLog = [];
   Timer? _changeLogTimer; // drives relative-time refresh
   // Content hashes: key → hash of last-seen raw JSON.
@@ -89,6 +97,8 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
   final Map<String, int> _contentHashes = {};
   List<String> _peers = [];
   SyncStats? _syncStats;
+  String? _endpointAddr;
+  String? _endpointSocketAddr;
   Timer? _peerTimer;
 
   // Cell and Command state
@@ -126,6 +136,10 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
   bool _editingCallsign = false;
   String _callsignPrev = ''; // for cancel
   List<NodeInfo> _roster = [];
+  // Skew-immune liveness: last observed heartbeat value + LOCAL clock time we
+  // saw it advance, keyed by node id. See the roster builder for rationale.
+  final Map<String, int> _nodeHbSeen = {};
+  final Map<String, int> _nodeSeenLocal = {};
 
   // PN-Counter CRDT: each node maintains its own (inc, dec) slot so
   // offline edits from multiple nodes merge additively on reconnect.
@@ -178,13 +192,19 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
         '${_callsignPool[rng.nextInt(_callsignPool.length)]}-${rng.nextInt(90) + 10}';
     _callsignCtrl = TextEditingController(text: _hostName);
     _callsignPrev = _hostName;
-    // Load persisted callsign (overrides hostname default if saved)
+    // Load persisted callsign (device identity) from prefs. Capabilities are
+    // NOT persisted here — they live in this node's Peat document and are
+    // restored from the store on node start (see _startNode), so a database
+    // reset clears them (correct) and they still sync to peers + survive a
+    // restart via the store.
     SharedPreferences.getInstance().then((prefs) {
       final saved = prefs.getString('callsign');
-      if (saved != null && saved.isNotEmpty && mounted) {
+      if (mounted) {
         setState(() {
-          _callsignCtrl.text = saved;
-          _callsignPrev = saved;
+          if (saved != null && saved.isNotEmpty) {
+            _callsignCtrl.text = saved;
+            _callsignPrev = saved;
+          }
         });
       }
     });
@@ -220,6 +240,21 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
     if (!mounted || !_starting) return; // user cancelled while waiting
     try {
       final dir = await getApplicationSupportDirectory();
+      // CRITICAL: the iroh node id is derived from a deterministic seed =
+      // app_id + storage_path (peat-ffi). On Android every device uses the same
+      // package path (/data/user/0/<pkg>/files/peat), so without a unique
+      // suffix BOTH phones derive the SAME node id and can never mesh (and the
+      // roster/counter shows one identity for two devices). Append a persisted
+      // per-install id so each device gets a stable, unique node identity.
+      final prefs = await SharedPreferences.getInstance();
+      var installId = prefs.getString('install_id');
+      if (installId == null) {
+        installId =
+            '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}'
+            '${Random().nextInt(1 << 31).toRadixString(36)}';
+        await prefs.setString('install_id', installId);
+      }
+      final storagePath = '${dir.path}/peat-$installId';
       final node = PeatFlutterNode.create(NodeConfig(
         appId: 'peat-flutter-example',
         // Test-only shared key. Replace with a real base64-encoded 32-byte key:
@@ -228,11 +263,28 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
         // mesh with each other. Fine for local dev; replace before sharing.
         sharedKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
         bindAddress: null,
-        storagePath: '${dir.path}/peat',
-        transport: null,
+        storagePath: storagePath,
+        // Enable BLE so peat-ffi registers its (stub) Android BLE transport into
+        // ANDROID_BLE_TRANSPORT — required for bleAddPeerJni and the outbound
+        // fan-out to emit "ble" frames. The real radio is peat-btle (BleBridge);
+        // peat-ffi's stub adapter is just the mesh's BLE transport endpoint.
+        transport: const TransportConfigFFI(
+          enableBle: true,
+          bleMeshId: null,
+          blePowerProfile: 'balanced',
+          transportPreference: null,
+          collectionRoutesJson: null,
+        ),
       ));
       node.startSync();
       _startBle(node); // auto-start BLE on all platforms
+      // Auto-start Wi-Fi Direct on Android too (infra-free LAN for iroh). Still
+      // pops the one-time "invite to connect" prompt the first time.
+      if (Platform.isAndroid && !_wifiDirectOn) {
+        _wifiChannel.invokeMethod<bool>('startWifiDirect').then((ok) {
+          if (mounted) setState(() => _wifiDirectOn = ok ?? false);
+        }).catchError((_) {});
+      }
 
       _sessionStartMs = DateTime.now().millisecondsSinceEpoch;
       // Key the counter slot on the unique node ID so two iOS devices
@@ -246,17 +298,53 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
         _refreshMission(_node!);
       });
 
-      // Publish this node's presence into the mesh.
+      // Restore my capabilities from MY node document in the store (the Peat
+      // document — NOT app prefs), if a prior session persisted them. Must run
+      // before the first _publishSelf so stored caps win over the platform
+      // default. A database reset wipes the store, so this finds nothing and
+      // falls through to the default — exactly the desired reset behavior.
+      final selfCaps = node.nodes
+          .where((n) => n.id == node.nodeId && n.capabilities.isNotEmpty)
+          .toList();
+      if (selfCaps.isNotEmpty) {
+        _myCapabilities = selfCaps.first.capabilities;
+        if (mounted) setState(() {});
+      }
+
+      // Publish this node's presence + current counter into the mesh
+      // immediately on start, so a node that just restarted pushes its own
+      // state to the peer near-instantly (rather than waiting for the first
+      // heartbeat). The peer's state comes back via its heartbeat re-advertise.
       _publishSelf(node);
+      _flushMyCounter(node);
 
       var _heartbeatTick = 0;
       _peerTimer = Timer.periodic(const Duration(seconds: 2), (_) {
         if (!mounted || _node == null) return;
         // Re-publish self every 2 min to keep heartbeat fresh for peers.
         _heartbeatTick++;
-        if (_heartbeatTick >= 60) { // 60 × 2s = 120s
+        if (_heartbeatTick >= 2) { // 2 × 2s = 4s. Bounds comms-recovery
+          // convergence: with the BLE radio kept up across a node restart,
+          // neither side sees a disconnect/reconnect edge, so this steady
+          // re-advertise is what makes a reconnecting node catch up — at 20s
+          // that was a ~10s average lag (unacceptable for the demo); 4s caps
+          // worst-case convergence at one beat. Traffic stays modest (a few
+          // small frames/node) and ingestion is idempotent + echo-suppressed.
           _heartbeatTick = 0;
           _publishSelf(_node!);
+          // Re-broadcast owned shared state every beat so a peer that was
+          // OFFLINE and reconnects converges to current within ~20s — without
+          // depending on the BLE peer-count rising edge (BLE disconnect
+          // detection lags, so the still-online node may never see a 0→1 edge
+          // to trigger a one-shot re-push). The fan-out is otherwise
+          // change-driven; this is the steady re-advertise that makes
+          // comms-recovery / convergence-on-reconnect reliable. Re-publishing
+          // an unchanged CRDT doc is idempotent on the receiver.
+          _flushMyCounter(_node!);
+          if (_missionDays > 0) _republishMission(_node!);
+          if (_myCapabilities.contains('leader') && _roster.isNotEmpty) {
+            _formCell();
+          }
         }
         // Clean up ghost entries that may have synced in from the peer.
         _cleanGhostNodes(_node!);
@@ -268,15 +356,18 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
             _activeCell = cells.isNotEmpty ? cells.first : null;
             _commands = cmds;
           });
-          // Leader: auto-reform cell when peer set changes.
-          // Guard: only reform if roster is populated and node is stable.
+          // Leader: auto-reform the cell when ROSTER membership changes — not
+          // the iroh `_peers` set (empty on Android), which is why the cell
+          // never grew to include the joining peer. Re-forms only on change,
+          // so no churn; once the peer appears in the roster the cell becomes
+          // a 2-member cell and re-publishes.
           if (_myCapabilities.contains('leader') &&
               cells.isNotEmpty &&
               _roster.isNotEmpty &&
               _nodeId != null) {
-            final currentPeers = Set<String>.from(_peers);
-            if (currentPeers != _lastCellPeers) {
-              _lastCellPeers = currentPeers;
+            final currentMembers = _roster.map((n) => n.id).toSet();
+            if (currentMembers != _lastCellPeers) {
+              _lastCellPeers = currentMembers;
               _formCell();
             }
           }
@@ -302,27 +393,90 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
         setState(() {
           _peers = _node!.connectedPeers;
           _syncStats = _node!.syncStats;
-          // Show self, connected peers, and nodes heartbeat'd within 10 min.
-          // Deduplicate by callsign (name), keeping the most recent entry —
-          // prevents duplicate rows when the same device reconnects with a
-          // new node ID within the heartbeat window.
-          final recentCutoff = DateTime.now()
-              .subtract(const Duration(minutes: 3))
-              .millisecondsSinceEpoch;
+          _endpointAddr = _node!.endpointAddr;
+          _endpointSocketAddr = _node!.endpointSocketAddr;
+          // BLE peers aren't in the iroh connected-set; poll the native bridge.
+          if (Platform.isAndroid && _bleRunning) {
+            _bleChannel.invokeMethod<int>('blePeerCount').then((c) {
+              if (mounted && c != null && c != _blePeerCount) {
+                final rising = _blePeerCount == 0 && c > 0;
+                setState(() => _blePeerCount = c);
+                // Rising edge (0 -> N): the BLE fan-out is change-driven and
+                // its startup Initial-snapshot races the peer connection, so a
+                // peer that joins after we published gets nothing until our
+                // next edit. Push current state across now: re-publish our
+                // capabilities (so we appear in the peer's roster immediately,
+                // not up to 120s later) and flush the counter (so its value
+                // converges without waiting for a fresh tap).
+                if (rising && _node != null) {
+                  _publishSelf(_node!);
+                  _flushMyCounter(_node!);
+                  // Re-broadcast leader-owned shared state to the just-joined
+                  // peer (fan-out is change-driven, so a mission/cell set
+                  // before this peer connected would never reach it).
+                  if (_missionDays > 0) _republishMission(_node!);
+                  if (_myCapabilities.contains('leader') && _roster.isNotEmpty) {
+                    _formCell();
+                  }
+                }
+              }
+            }).catchError((_) {});
+          }
+          if (Platform.isAndroid && _wifiDirectOn) {
+            _wifiChannel.invokeMethod<Map>('wifiDirectStatus').then((m) {
+              final s = (m?['status'] as String?) ?? 'idle';
+              if (mounted && s != _wifiDirectStatus) {
+                setState(() => _wifiDirectStatus = s);
+              }
+            }).catchError((_) {});
+            // Tunnel connection state (the real P2PWiFi carrier link), not the
+            // dead iroh peer set.
+            _wifiChannel.invokeMethod<int>('wifiTunnelPeers').then((c) {
+              if (mounted && c != null && c != _wifiTunnelPeers) {
+                setState(() => _wifiTunnelPeers = c);
+              }
+            }).catchError((_) {});
+          }
+          // Liveness uses LOCAL receipt time, not the peer's clock-stamped
+          // `lastHeartbeat`. Comparing a remote heartbeat against our own
+          // clock breaks under clock skew (observed: two phones ~7 min apart
+          // → the ahead phone treats the behind phone's fresh heartbeat as
+          // already-expired and drops it from the roster). Instead, each time
+          // a node's heartbeat advances we stamp the LOCAL clock; a node is
+          // "live" if we saw it advance within the window — skew-immune.
+          final localNow = DateTime.now().millisecondsSinceEpoch;
+          for (final n in _node!.nodes) {
+            final prevHb = _nodeHbSeen[n.id];
+            if (prevHb == null || n.lastHeartbeat > prevHb) {
+              _nodeHbSeen[n.id] = n.lastHeartbeat;
+              _nodeSeenLocal[n.id] = localNow;
+            }
+          }
+          final liveCutoff = localNow - const Duration(minutes: 3).inMilliseconds;
           final allNodes = _node!.nodes
               .where((n) =>
                   n.id.length >= 16 &&
                   (n.id == _nodeId ||
                       _peers.contains(n.id) ||
-                      n.lastHeartbeat >= recentCutoff))
-              .toList()
-            ..sort((a, b) => b.lastHeartbeat.compareTo(a.lastHeartbeat));
-          // Keep most-recent entry per callsign name
+                      (_nodeSeenLocal[n.id] ?? 0) >= liveCutoff))
+              .toList();
+          // Keep most-recent entry per callsign name (dedup reconnects with a
+          // new node id), preferring the freshest by local-receipt time.
+          allNodes.sort((a, b) =>
+              (_nodeSeenLocal[b.id] ?? 0).compareTo(_nodeSeenLocal[a.id] ?? 0));
           final byName = <String, NodeInfo>{};
           for (final n in allNodes) {
             byName[n.name] ??= n;
           }
-          _roster = byName.values.toList();
+          // STABLE display order: self first, then by callsign. Sorting the
+          // displayed roster by last-receipt made rows leapfrog every few
+          // seconds (both nodes heartbeat every 4s) — the "bouncing" roster.
+          _roster = byName.values.toList()
+            ..sort((a, b) {
+              if (a.id == _nodeId) return -1;
+              if (b.id == _nodeId) return 1;
+              return a.name.compareTo(b.name);
+            });
         });
       });
 
@@ -417,11 +571,13 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
 
   void _refreshMission(PeatFlutterNode node) {
     try {
-      final raw = node.getRaw(_missionCollection, _missionDocId);
-      if (raw == null) return;
-      final map = jsonDecode(raw) as Map<String, dynamic>;
-      final days = map['days'] as int? ?? 0;
-      final by = map['by'] as String?;
+      // Mission is published through the node layer (wrapped as {fields:{..}});
+      // read via the shared extractor so days/by come from the right level
+      // (a top-level read returned null, so the mission never updated).
+      final f = _docFields(node.getRaw(_missionCollection, _missionDocId));
+      if (f == null) return;
+      final days = f['days'] as int? ?? 0;
+      final by = f['by'] as String?;
       if (mounted && (days != _missionDays || by != _missionSetBy)) {
         setState(() {
           _missionDays = days;
@@ -432,14 +588,49 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
   }
 
   void _setMission(PeatFlutterNode node, int days) {
-    final json = jsonEncode({'days': days, 'by': _hostName,
-        'liters_per_person_per_day': _litersPerPersonPerDay});
-    node.publishRaw(_missionCollection, json, docId: _missionDocId);
+    final json = jsonEncode({
+      'id': _missionDocId,
+      'days': days,
+      'by': _callsign,
+      'liters_per_person_per_day': _litersPerPersonPerDay,
+    });
+    if (Platform.isAndroid) {
+      // Route through the node layer so it fans out over BLE (same as counter).
+      _bleChannel.invokeMethod('publishDoc',
+          {'collection': _missionCollection, 'json': json}).catchError((_) {
+        node.publishRaw(_missionCollection, json, docId: _missionDocId);
+        return null;
+      });
+    } else {
+      node.publishRaw(_missionCollection, json, docId: _missionDocId);
+    }
     setState(() {
       _missionDays = days;
-      _missionSetBy = _hostName;
+      _missionSetBy = _callsign;
       _missionDaysDraft = days;
     });
+  }
+
+  /// Re-broadcast the current mission without mutating local state. Used by the
+  /// peer-connect trigger so a peer that joined after the mission was set still
+  /// receives it (the fan-out only emits on change).
+  void _republishMission(PeatFlutterNode node) {
+    if (_missionDays <= 0) return;
+    final json = jsonEncode({
+      'id': _missionDocId,
+      'days': _missionDays,
+      'by': _missionSetBy ?? _callsign,
+      'liters_per_person_per_day': _litersPerPersonPerDay,
+    });
+    if (Platform.isAndroid) {
+      _bleChannel.invokeMethod('publishDoc',
+          {'collection': _missionCollection, 'json': json}).catchError((_) {
+        node.publishRaw(_missionCollection, json, docId: _missionDocId);
+        return null;
+      });
+    } else {
+      node.publishRaw(_missionCollection, json, docId: _missionDocId);
+    }
   }
 
   String get _callsign => _callsignCtrl.text.trim().isEmpty
@@ -450,11 +641,21 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
     if (_node != null) return; // must be stopped first
     try {
       final dir = await getApplicationSupportDirectory();
-      final peatDir = Directory('${dir.path}/peat');
-      if (await peatDir.exists()) {
-        await peatDir.delete(recursive: true);
+      // The node's store is "${dir}/peat-<installId>" (unique per install to
+      // avoid node-id collisions). The old code deleted a hard-coded
+      // "${dir}/peat" that never existed, so reset silently did nothing.
+      // Delete every "peat" / "peat-*" store dir here.
+      var removed = 0;
+      if (await dir.exists()) {
+        await for (final entry in dir.list()) {
+          final name = entry.path.split(Platform.pathSeparator).last;
+          if (entry is Directory && (name == 'peat' || name.startsWith('peat-'))) {
+            await entry.delete(recursive: true);
+            removed++;
+          }
+        }
       }
-      // Reset in-memory counter state
+      // Reset in-memory state
       setState(() {
         _myInc = 0;
         _myDec = 0;
@@ -470,31 +671,85 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
         _missionSetBy = null;
         _error = null;
       });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(removed > 0
+              ? 'Local database reset — $removed store${removed == 1 ? '' : 's'} cleared. Start the node for a clean slate.'
+              : 'No local store found — already clean.'),
+        ));
+      }
     } catch (e) {
       setState(() => _error = 'Reset failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Reset failed: $e')));
+      }
     }
   }
 
   void _publishSelf(PeatFlutterNode node) {
     final id = node.nodeId;
     _cleanGhostNodes(node);
-    node.publishSelf(nodeId: id, name: _callsign, capabilities: _myCapabilities);
+    if (Platform.isAndroid) {
+      // Publish capabilities through the node layer (publishDoc →
+      // publishDocumentJni), NOT putNode. putNode writes a flat shape straight
+      // to storage_backend, but the fan-out and BLE ingest operate on wrapped
+      // mesh Documents — a flat-stored node doesn't round-trip its fields
+      // through the fan-out, so peers received an empty/id-only node. Routing
+      // self-publish through the same wrapped path the counter uses makes
+      // capabilities sync over BLE and the remote roster show the callsign.
+      final json = jsonEncode({
+        'id': id,
+        'node_type': 'peat-flutter',
+        'name': _callsign,
+        'status': 'ACTIVE',
+        'readiness': 1.0,
+        'capabilities': _myCapabilities,
+        'last_heartbeat': DateTime.now().millisecondsSinceEpoch,
+      });
+      _bleChannel.invokeMethod('publishDoc',
+          {'collection': 'nodes', 'json': json}).catchError((_) {
+        // Fallback to the uniffi path (local-only) if the node publish fails.
+        node.publishSelf(nodeId: id, name: _callsign, capabilities: _myCapabilities);
+        return null;
+      });
+    } else {
+      node.publishSelf(nodeId: id, name: _callsign, capabilities: _myCapabilities);
+    }
     // Persist callsign so it survives app restarts
     SharedPreferences.getInstance()
         .then((p) => p.setString('callsign', _callsign));
   }
 
   void _cleanGhostNodes(PeatFlutterNode node) {
-    final myId = node.nodeId;
-    // Remove: same hostname with wrong ID, or any node with invalid ID format.
+    // Remove ONLY structurally-invalid entries (bad/placeholder node id).
+    //
+    // We deliberately do NOT delete by "name == _hostName": `_hostName` is a
+    // random default callsign and callsigns persist across runs, so two
+    // devices frequently share one — the name rule then deletes the *real*
+    // peer every 2s (roster "populates then drops"). De-duplication of
+    // same-callsign entries is already handled for display by the `byName`
+    // map in the roster builder, so name-based deletion is both unsafe and
+    // redundant.
     for (final n in node.nodes) {
-      final isGhost = (n.name == _hostName && n.id != myId) ||
-          n.id.length < 16 ||
-          n.id == 'unknown';
+      final isGhost = n.id.length < 16 || n.id == 'unknown';
       if (isGhost) {
         try { node.deleteNode(n.id); } catch (_) {}
       }
     }
+  }
+
+  /// Extract the counter payload ({inc, dec, by}) from a stored doc, handling
+  /// both shapes: node-published docs arrive wrapped as a mesh Document
+  /// (`{"id":..,"fields":{inc,dec,by},"updated_at":..}`), while legacy
+  /// `publishRaw`/`put_document` writes are flat (`{inc,dec,by}`). Reading the
+  /// wrong level is why a synced peer counter showed 0 (the value was under
+  /// `fields`, not at top level).
+  Map<String, dynamic>? _docFields(String? raw) {
+    if (raw == null) return null;
+    final map = jsonDecode(raw) as Map<String, dynamic>;
+    final fields = map['fields'];
+    return (fields is Map<String, dynamic>) ? fields : map;
   }
 
   void _refreshCounter(PeatFlutterNode node) {
@@ -504,6 +759,8 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
     }
     // Read all counter docs to collect peer contributions.
     final docs = node.listDocuments(_counterCollection);
+    // DIAG: what does the store actually hold for the demo collection?
+    print('COUNTERDBG mine=$_myCounterDoc listDocuments(demo)=$docs');
     final updated = <String, int>{};
     for (final docId in docs) {
       if (!docId.startsWith('counter-')) continue;
@@ -511,24 +768,20 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
         // Restore my own state if we don't have it yet.
         if (_myInc == 0 && _myDec == 0 && !_counterDirty) {
           try {
-            final raw = node.getRaw(_counterCollection, docId);
-            if (raw != null) {
-              final map = jsonDecode(raw) as Map<String, dynamic>;
-              if (mounted) setState(() {
-                _myInc = map['inc'] as int? ?? 0;
-                _myDec = map['dec'] as int? ?? 0;
-              });
-            }
+            final f = _docFields(node.getRaw(_counterCollection, docId));
+            if (f != null && mounted) setState(() {
+              _myInc = f['inc'] as int? ?? 0;
+              _myDec = f['dec'] as int? ?? 0;
+            });
           } catch (_) {}
         }
         continue;
       }
       try {
-        final raw = node.getRaw(_counterCollection, docId);
-        if (raw != null) {
-          final map = jsonDecode(raw) as Map<String, dynamic>;
-          updated[docId] = (map['inc'] as int? ?? 0) - (map['dec'] as int? ?? 0);
-          final by = map['by'] as String?;
+        final f = _docFields(node.getRaw(_counterCollection, docId));
+        if (f != null) {
+          updated[docId] = (f['inc'] as int? ?? 0) - (f['dec'] as int? ?? 0);
+          final by = f['by'] as String?;
           if (by != null) _peerNames[docId] = by;
         }
       } catch (_) {}
@@ -541,11 +794,26 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
   }
 
   void _flushMyCounter(PeatFlutterNode node) {
-    final json = jsonEncode({'inc': _myInc, 'dec': _myDec, 'by': _hostName});
-    node.publishRaw(_counterCollection, json, docId: _myCounterDoc);
+    if (Platform.isAndroid) {
+      // Publish through the node layer (native publishDocumentJni) so the
+      // counter reaches the ADR-059 fan-out and syncs over BLE — put_document
+      // writes straight to storage_backend and bypasses the fan-out (that's why
+      // capabilities synced but the counter didn't). Carry the doc id in "id".
+      final json = jsonEncode(
+          {'id': _myCounterDoc, 'inc': _myInc, 'dec': _myDec, 'by': _callsign});
+      _bleChannel.invokeMethod('publishDoc',
+          {'collection': _counterCollection, 'json': json}).catchError((_) {
+        // Fallback: storage_backend write (local only) if node publish fails.
+        node.publishRaw(_counterCollection, json, docId: _myCounterDoc);
+        return null;
+      });
+    } else {
+      final json = jsonEncode({'inc': _myInc, 'dec': _myDec, 'by': _callsign});
+      node.publishRaw(_counterCollection, json, docId: _myCounterDoc);
+    }
     setState(() {
       _counterDirty = false;
-      _counterLastBy = _hostName;
+      _counterLastBy = _callsign;
     });
   }
 
@@ -557,7 +825,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
   void _adjustCounter(PeatFlutterNode? node, int delta) {
     setState(() {
       if (delta > 0) _myInc += delta; else _myDec += -delta;
-      _counterLastBy = _hostName;
+      _counterLastBy = _callsign;
     });
     if (node != null) {
       _flushMyCounter(node);
@@ -571,11 +839,11 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
   void _formCell() {
     final node = _node;
     if (node == null) return;
-    // Only include self + currently connected peers.
-    final activeIds = {_nodeId, ..._peers};
-    final activeNodes = _roster
-        .where((n) => activeIds.contains(n.id))
-        .toList();
+    // Members = the live roster (self + BLE-reachable peers). The old code
+    // used {_nodeId, ..._peers}, but _peers is the iroh connected-set, which
+    // is empty on Android (iroh can't connect) — so the cell only ever held
+    // self and the peer never joined. The roster is the real membership.
+    final activeNodes = _roster.toList();
     if (activeNodes.isEmpty) return;
     final allCaps = activeNodes
         .expand((n) => n.capabilities)
@@ -585,7 +853,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
         .firstWhere((n) => n.capabilities.contains('leader'),
             orElse: () => activeNodes.first)
         .id;
-    node.putCell(CellInfo(
+    final cell = CellInfo(
       id: 'alpha-cell',
       name: 'Alpha Cell',
       status: activeNodes.length > 1 ? CellStatus.active : CellStatus.forming,
@@ -597,7 +865,32 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
       leaderId: leader,
       lastUpdate: DateTime.now().millisecondsSinceEpoch,
       scenarioCommand: null,
-    ));
+    );
+    if (Platform.isAndroid) {
+      // Publish through the node layer (wrapped Document) so the cell reaches
+      // the BLE fan-out and the other device actually receives it. putCell
+      // writes a flat shape straight to storage that doesn't sync.
+      final json = jsonEncode({
+        'id': cell.id,
+        'name': cell.name,
+        'status': activeNodes.length > 1 ? 'ACTIVE' : 'FORMING',
+        'node_count': cell.nodeCount,
+        'center_lat': 0,
+        'center_lon': 0,
+        'capabilities': allCaps,
+        'formation_id': null,
+        'leader_id': leader,
+        'last_update': cell.lastUpdate,
+        'scenario_command': null,
+      });
+      _bleChannel.invokeMethod('publishDoc',
+          {'collection': 'cells', 'json': json}).catchError((_) {
+        node.putCell(cell);
+        return null;
+      });
+    } else {
+      node.putCell(cell);
+    }
   }
 
   Widget _buildCellCard(ThemeData theme) {
@@ -644,8 +937,11 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                     style: theme.textTheme.bodyMedium
                         ?.copyWith(fontWeight: FontWeight.bold)),
                 const SizedBox(width: 8),
-                // Show live connected count (may lead the stored value by one cycle)
-                Text('${(Set<String>.from(_peers)..add(_nodeId ?? '')).length} nodes',
+                // The cell's actual member count (what the leader formed it
+                // with). The old code counted the iroh `_peers` set + self,
+                // which is always 1 on Android (iroh never connects) — so the
+                // cell always read "1 node" no matter the real membership.
+                Text('${cell.nodeCount} nodes',
                     style: theme.textTheme.bodySmall
                         ?.copyWith(color: theme.colorScheme.outline)),
               ]),
@@ -677,11 +973,38 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
 
   // ── Command card ─────────────────────────────────────────────────────
 
+  /// Publish a command so it actually syncs over BLE. Like cells/nodes, the
+  /// flat `putCommand` write doesn't reach the fan-out — route through the node
+  /// layer (wrapped Document) on Android. `parameters` is sent as a nested
+  /// object (not a quoted string) so the Rust side reconstructs it verbatim.
+  void _publishCommand(PeatFlutterNode node, CommandInfo cmd) {
+    if (Platform.isAndroid) {
+      final json = jsonEncode({
+        'id': cmd.id,
+        'command_type': cmd.commandType,
+        'target_id': cmd.targetId,
+        'parameters': jsonDecode(cmd.parameters),
+        'priority': cmd.priority,
+        'status': cmd.status.name.toUpperCase(),
+        'originator': cmd.originator,
+        'created_at': cmd.createdAt,
+        'last_update': cmd.lastUpdate,
+      });
+      _bleChannel.invokeMethod('publishDoc',
+          {'collection': 'commands', 'json': json}).catchError((_) {
+        node.putCommand(cmd);
+        return null;
+      });
+    } else {
+      node.putCommand(cmd);
+    }
+  }
+
   void _issueWaterRequest(int quantity) {
     final node = _node;
     if (node == null) return;
     final id = 'req-${DateTime.now().millisecondsSinceEpoch}';
-    node.putCommand(CommandInfo(
+    _publishCommand(node, CommandInfo(
       id: id,
       commandType: 'WATER_REQUEST',
       targetId: 'leader',
@@ -705,7 +1028,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
       _adjustCounter(node, -qty); // atomic: give all at once
     } catch (_) {}
     // Mark command as completed so the requester can claim it.
-    node.putCommand(CommandInfo(
+    _publishCommand(node, CommandInfo(
       id: cmd.id,
       commandType: cmd.commandType,
       targetId: cmd.targetId,
@@ -934,23 +1257,30 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                   color: statusColor,
                 ),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 6),
+              // Single row: liters + who set it on the left, percent on the
+              // right. (Was three cramped, overlapping lines.)
               Row(children: [
                 Text(
                   '${current}L / ${required}L',
                   style: theme.textTheme.bodySmall
                       ?.copyWith(fontWeight: FontWeight.bold, color: statusColor),
                 ),
+                if (_missionSetBy != null)
+                  Flexible(
+                    child: Text(
+                      '  ·  set by $_missionSetBy',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.outline, fontSize: 11),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                 const Spacer(),
                 Text(
                   '${(pct * 100).round()}%',
                   style: theme.textTheme.bodySmall?.copyWith(color: statusColor),
                 ),
               ]),
-              if (_missionSetBy != null)
-                Text('set by: $_missionSetBy',
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: theme.colorScheme.outline, fontSize: 10)),
             ] else if (!isLeader)
               Text('Awaiting mission objective from leader.',
                   style: theme.textTheme.bodySmall
@@ -1016,6 +1346,24 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
   void _startBle([PeatFlutterNode? explicit]) {
     final node = explicit ?? _node;
     if (node == null || _bleRunning) return;
+
+    // Android: the real BLE transport is peat-btle, driven natively in
+    // MainActivity (BleBridge). It owns the outbound fan-out via
+    // subscribeOutboundFramesJni, so we must NOT also drain it here with
+    // startOutboundFrames() — that would split frames between two consumers.
+    if (Platform.isAndroid) {
+      _bleChannel.invokeMethod<bool>('startBle').then((ok) {
+        if (!mounted) return;
+        setState(() => _bleRunning = ok ?? false);
+      }).catchError((e) {
+        if (!mounted) return;
+        // e.g. permissions not granted yet — user grants then taps again.
+        setState(() => _bleRunning = false);
+      });
+      return;
+    }
+
+    // Other platforms: existing placeholder frame-count stream.
     try {
       final sub = node.startOutboundFrames().listen((frame) {
         if (!mounted) return;
@@ -1031,7 +1379,34 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
     }
   }
 
+  // Wi-Fi Direct: form an infrastructure-free P2P LAN so iroh (mDNS) can
+  // discover + sync without an AP/hotspot. Tap on BOTH phones; one becomes the
+  // group owner. iroh does the actual document sync over the formed link.
+  void _toggleWifiDirect() {
+    if (!Platform.isAndroid) return;
+    if (_wifiDirectOn) {
+      _wifiChannel.invokeMethod('stopWifiDirect').catchError((_) {});
+      setState(() {
+        _wifiDirectOn = false;
+        _wifiDirectStatus = 'idle';
+      });
+    } else {
+      _wifiChannel.invokeMethod<bool>('startWifiDirect').then((ok) {
+        if (!mounted) return;
+        setState(() => _wifiDirectOn = ok ?? false);
+      }).catchError((_) {
+        if (!mounted) return;
+        setState(() => _wifiDirectOn = false);
+      });
+    }
+  }
+
   void _stopBle() {
+    if (Platform.isAndroid) {
+      _bleChannel.invokeMethod('stopBle').catchError((_) {});
+      setState(() => _bleRunning = false);
+      return;
+    }
     _outboundSub?.cancel();
     setState(() {
       _outboundSub = null;
@@ -1046,7 +1421,25 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
     _peerTimer?.cancel();
     _counterTimer?.cancel();
     _changeLogTimer?.cancel();
+    // UNBIND the BLE bridge from this node BEFORE freeing it — without
+    // stopping the radio. The bridge's outbound subscription is bound to this
+    // node; unbinding drops its handle (so a late inbound frame can't touch
+    // the freed node) while keeping the BLE link connected. On restart,
+    // _startBle → BleBridge.start() RE-BINDS the new node (re-subscribes
+    // outbound + new handle). (Fully stopping/re-initializing the radio here
+    // did not reconnect cleanly — "no connection after restart"; and leaving
+    // it bound to the old node left it "running but deaf".)
+    if (Platform.isAndroid) {
+      _bleChannel.invokeMethod('unbindBle').catchError((_) => null);
+    }
     try { _node?.dispose(); } catch (_) {}
+    // Release the native global's owning reference to the node (set by
+    // create_node) so the node can actually be freed now that Dart has
+    // dropped its handle. Done at node teardown, not BLE stop — the node
+    // outlives BLE start/stop. See peat#978.
+    if (Platform.isAndroid) {
+      _bleChannel.invokeMethod('clearGlobalNodeHandle').catchError((_) => null);
+    }
     Future.delayed(const Duration(seconds: 5), () {
       if (mounted) setState(() => _stopping = false);
     });
@@ -1312,21 +1705,6 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                         ),
                       ],
                     ),
-                    if (_counterLastBy != null && _counterValue > 0) ...[
-                    const SizedBox(height: 2),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                          Text(
-                            '✎ $_counterLastBy',
-                            style: theme.textTheme.bodySmall
-                                ?.copyWith(color: theme.colorScheme.outline,
-                                    fontSize: 10),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                      ],
-                    ),
-                    ], // counterLastBy
                   ],
                 ),
               ),
@@ -1365,24 +1743,54 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                       const SizedBox(height: 4),
                       ..._roster.map((n) {
                         final isMe = n.id == _nodeId;
-                        final isConnected = isMe || _peers.contains(n.id);
+                        // "Connected" = we've received this peer's heartbeat
+                        // recently (skew-immune local-receipt liveness), NOT the
+                        // iroh `_peers` set — iroh-over-WiFiDirect connects then
+                        // dies on Android, so it falsely showed a dead Wi-Fi link.
+                        final sinceSeen = DateTime.now().millisecondsSinceEpoch -
+                            (_nodeSeenLocal[n.id] ?? 0);
+                        final isConnected = isMe || sinceSeen < 25000;
+                        // Per-peer transport badges: show EVERY live carrier so
+                        // BLE + P2PWiFi appear together when both are up. These
+                        // are app-level carrier links (BLE mesh / Wi-Fi Direct
+                        // TCP tunnel); for the 2-node demo they're global, shown
+                        // against the live peer. iroh's _peers is intentionally
+                        // not used (dead on these phones).
+                        const bleBlue = Color(0xFF2196F3);
+                        final bleUp = !isMe && isConnected && _blePeerCount > 0;
+                        final wifiUp = !isMe && isConnected && _wifiTunnelPeers > 0;
+                        final transports = <Widget>[];
+                        if (isMe) {
+                          transports.add(Icon(Icons.person,
+                              size: 14, color: theme.colorScheme.primary));
+                        } else if (!isConnected) {
+                          transports.add(Icon(Icons.bluetooth_disabled,
+                              size: 14, color: theme.colorScheme.outline));
+                        } else {
+                          if (bleUp) {
+                            transports.add(const Icon(Icons.bluetooth,
+                                size: 14, color: bleBlue));
+                          }
+                          if (wifiUp) {
+                            transports.add(const Icon(Icons.wifi,
+                                size: 14, color: Colors.green));
+                          }
+                          if (transports.isEmpty) {
+                            // Live (heartbeating) but carrier flags not up yet.
+                            transports.add(const Icon(Icons.lan,
+                                size: 14, color: Colors.green));
+                          }
+                        }
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 3),
                           child: Row(children: [
-                            // Connection indicator
-                            Icon(
-                              isMe
-                                  ? Icons.person
-                                  : isConnected
-                                      ? Icons.wifi
-                                      : Icons.wifi_off,
-                              size: 14,
-                              color: isMe
-                                  ? theme.colorScheme.primary
-                                  : isConnected
-                                      ? Colors.green
-                                      : theme.colorScheme.outline,
-                            ),
+                            // One badge per live carrier (BLE blue, Wi-Fi green).
+                            Row(mainAxisSize: MainAxisSize.min, children: [
+                              for (var i = 0; i < transports.length; i++) ...[
+                                if (i > 0) const SizedBox(width: 2),
+                                transports[i],
+                              ],
+                            ]),
                             const SizedBox(width: 6),
                             Expanded(
                               child: Column(
@@ -1464,14 +1872,21 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                           label: Text(cap),
                           labelStyle: theme.textTheme.labelSmall,
                           selected: selected,
-                          onSelected: (v) => setState(() {
-                            if (v) {
-                              _myCapabilities = [..._myCapabilities, cap];
-                            } else {
-                              _myCapabilities =
-                                  _myCapabilities.where((c) => c != cap).toList();
-                            }
-                          }),
+                          onSelected: (v) {
+                            setState(() {
+                              if (v) {
+                                _myCapabilities = [..._myCapabilities, cap];
+                              } else {
+                                _myCapabilities = _myCapabilities
+                                    .where((c) => c != cap)
+                                    .toList();
+                              }
+                            });
+                            // Re-publish so peers see the change and it's
+                            // persisted in this node's Peat document (the store),
+                            // NOT app prefs — a database reset then clears it.
+                            if (_node != null) _publishSelf(_node!);
+                          },
                           visualDensity: VisualDensity.compact,
                           padding: EdgeInsets.zero,
                         );
@@ -1672,7 +2087,47 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
                 if (_syncStats != null) ...[
                   _aboutRow(theme, 'Sent', '${_syncStats!.bytesSent} B'),
                   _aboutRow(theme, 'Received', '${_syncStats!.bytesReceived} B'),
-                  _aboutRow(theme, 'Peers', '${_peers.length} connected'),
+                  _aboutRow(theme, 'Peers (Wi-Fi)', '$_wifiTunnelPeers connected'),
+                ],
+                if (Platform.isAndroid && _bleRunning)
+                  _aboutRow(theme, 'Peers (BLE)', '$_blePeerCount connected'),
+                if (Platform.isAndroid) ...[
+                  _aboutRow(theme, 'Wi-Fi Direct', _wifiDirectStatus),
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      onPressed: _toggleWifiDirect,
+                      icon: Icon(_wifiDirectOn ? Icons.wifi_off : Icons.wifi_tethering, size: 18),
+                      label: Text(_wifiDirectOn ? 'Stop Wi-Fi Direct' : 'Start Wi-Fi Direct'),
+                    ),
+                  ),
+                  Text(
+                    'Tap on both phones (no Wi-Fi/AP needed). Accept the '
+                    '"invite to connect" prompt; then Stop/Start the node so iroh '
+                    'binds to the P2P link.',
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: theme.colorScheme.outline, fontStyle: FontStyle.italic),
+                  ),
+                ],
+                if (_nodeId != null) ...[
+                  const SizedBox(height: 12),
+                  Text('Network Diagnostics',
+                      style: theme.textTheme.titleSmall
+                          ?.copyWith(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  _aboutRow(theme, 'Endpoint',
+                      (_endpointAddr == null || _endpointAddr!.isEmpty)
+                          ? '— (not advertising)'
+                          : _endpointAddr!),
+                  _aboutRow(theme, 'Socket',
+                      _endpointSocketAddr ?? '— (no bound address)'),
+                  _aboutRow(theme, 'Discovered',
+                      _peers.isEmpty ? 'none yet' : '${_peers.length} peer(s)'),
+                  if (_peers.isNotEmpty)
+                    for (final p in _peers)
+                      _aboutRow(theme, '·',
+                          p.length > 24 ? '${p.substring(0, 24)}…' : p),
                 ],
                 if (_nodeId == null)
                   Text('Start a node to see details.',

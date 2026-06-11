@@ -28,9 +28,9 @@ EXTERNAL SOURCES:
 SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   path_provider_foundation: bb55f6dbba17d0dccd6737fe6f7f34fbd0376880
-  peat_flutter: a8ad99472d80182c766498dc32b8739f7b309fd4
+  peat_flutter: edf755267172b6c13a7d4b7ec6b3645118d964f0
   shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
 
-PODFILE CHECKSUM: c2c51e96deecd527c95b3ef8373882126b77b7ee
+PODFILE CHECKSUM: 4258a60e10e80c87a86be3140521c901afff734d
 
 COCOAPODS: 1.16.2
