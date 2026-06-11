@@ -1351,6 +1351,13 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
     _counterTimer?.cancel();
     _changeLogTimer?.cancel();
     try { _node?.dispose(); } catch (_) {}
+    // Release the native global's owning reference to the node (set by
+    // create_node) so the node can actually be freed now that Dart has
+    // dropped its handle. Done at node teardown, not BLE stop — the node
+    // outlives BLE start/stop. See peat#978.
+    if (Platform.isAndroid) {
+      _bleChannel.invokeMethod('clearGlobalNodeHandle').catchError((_) => null);
+    }
     Future.delayed(const Duration(seconds: 5), () {
       if (mounted) setState(() => _stopping = false);
     });

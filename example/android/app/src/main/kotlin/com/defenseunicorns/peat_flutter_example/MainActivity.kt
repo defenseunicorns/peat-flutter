@@ -89,6 +89,12 @@ class MainActivity : FlutterActivity() {
                     result.success(bridge.start())
                 }
                 "stopBle" -> { bleBridge?.stop(); result.success(true) }
+                "clearGlobalNodeHandle" -> {
+                    // Release the native global's owning node reference on node
+                    // teardown (see peat#978). Safe no-op if nothing is stored.
+                    try { PeatJni.clearGlobalNodeHandleJni(); result.success(true) }
+                    catch (t: Throwable) { result.error("CLEAR", t.message, null) }
+                }
                 "isBleRunning" -> result.success(bleBridge?.isRunning() ?: false)
                 "blePeerCount" -> result.success(bleBridge?.peerCount() ?: 0)
                 "publishDoc" -> {

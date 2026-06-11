@@ -72,6 +72,11 @@ object PeatJni {
 
     @JvmStatic external fun getGlobalNodeHandleJni(): Long
 
+    // Releases the owning reference create_node stored in the native global.
+    // Call on node teardown (NOT on BLE stop — the node outlives BLE
+    // start/stop) so the node can actually be freed. See peat#978.
+    @JvmStatic external fun clearGlobalNodeHandleJni()
+
     @JvmStatic external fun freeNodeJni(handle: Long)
 
     // -- Node identity / peer state ----------------------------------------
