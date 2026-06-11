@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:tools="http://schemas.android.com/tools"
   package="com.defenseunicorns.peat_flutter">
 
     <!-- Bluetooth permissions for Android 12+ (API 31+) -->
@@ -16,8 +17,11 @@
         android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
         android:maxSdkVersion="30" />
+    <!-- ACCESS_FINE_LOCATION: BLE scan (<=30) AND Wi-Fi Direct peer discovery
+         (<=32; on API 33+ NEARBY_WIFI_DEVICES covers both). -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
-        android:maxSdkVersion="30" />
+        android:maxSdkVersion="32"
+        tools:replace="android:maxSdkVersion" />
 
     <!-- INTERNET required for Iroh QUIC relay / direct-connect peers -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -32,6 +36,9 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Wi-Fi Direct (P2P): infrastructure-free LAN between devices. iroh + mDNS
+         then run over the formed group's interface (no peat-ffi change). -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"
         android:usesPermissionFlags="neverForLocation" />
 

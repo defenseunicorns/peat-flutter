@@ -4190,7 +4190,21 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        // statusCode == 2 (CALL_UNEXPECTED_ERROR / Rust panic): the RustBuffer
+        // holds the panic message as a UniFFI-lowered String (4-byte BE length
+        // prefix + UTF-8). Decode it so the actual reason is visible instead of
+        // a bare "status 2".
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List raw = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List body = raw;
+          if (raw.length >= 4) {
+            final int prefixLen = (raw[0] << 24) | (raw[1] << 16) | (raw[2] << 8) | raw[3];
+            if (prefixLen == raw.length - 4) { body = raw.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(body);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       return PeatNodeFfiCodec.lift((returnBuf + 0).ref.u64);
     } finally {
