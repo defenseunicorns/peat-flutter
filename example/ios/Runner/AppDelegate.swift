@@ -12,5 +12,9 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    if let messenger = engineBridge.pluginRegistry
+        .registrar(forPlugin: "PeatBleBridge")?.messenger() {
+      PeatBleBridge.register(messenger: messenger)
+    }
   }
 }

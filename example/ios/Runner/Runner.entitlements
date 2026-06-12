@@ -16,8 +16,12 @@
 	  before Automatic signing can produce a provisioning profile that
 	  includes it. Until granted, signed builds will fail with a missing-
 	  entitlement error.
+
+	  TEMPORARILY DISABLED (2026-06-11) so device builds sign for the BLE
+	  demo (BLE needs no entitlement; the mDNS path that needs this is
+	  blocked anyway pending Apple approval). RESTORE the key below once
+	  Apple grants the Multicast Networking Entitlement for this App ID.
 	-->
-	<key>com.apple.developer.networking.multicast</key>
-	<true/>
+	<!-- <key>com.apple.developer.networking.multicast</key><true/> -->
 </dict>
 </plist>

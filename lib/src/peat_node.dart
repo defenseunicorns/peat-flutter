@@ -277,6 +277,22 @@ class PeatFlutterNode {
   String? ingestInboundFrame(String collection, Uint8List postcardBytes) =>
       _node.ingestInboundFrame(collection, postcardBytes);
 
+  /// Feed a BLE inbound frame on the universal-Document ("ble-lite") codec.
+  ///
+  /// The counterpart of [ingestInboundFrame] for raw collections the typed
+  /// translator declines (e.g. the demo counter, nodes/cells/mission/commands).
+  /// Returns the document ID if accepted, null if the collection is unknown.
+  String? ingestInboundLiteFrame(String collection, Uint8List envelopeBytes) =>
+      _node.ingestInboundLiteFrame(collection, envelopeBytes);
+
+  /// Publish a JSON document through the node layer so it reaches the ADR-059
+  /// fan-out and is emitted over the bridged transports (BLE/Wi-Fi). Unlike
+  /// [publishRaw]/[putDocument] (which write to storage_backend and bypass the
+  /// fan-out), this is what makes a locally-authored doc sync to peers over
+  /// BLE. The JSON's `id` field, if present, becomes the doc id (returned).
+  String publishDocument(String collection, String json) =>
+      _node.publishDocument(collection, json);
+
   /// Cancel all active subscriptions and release FFI resources.
   void dispose() {
     _changeTimer?.cancel();
