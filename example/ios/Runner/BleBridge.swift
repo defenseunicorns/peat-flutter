@@ -52,6 +52,23 @@ final class PeatBLEManager: NSObject, CBCentralManagerDelegate, CBPeripheralDele
         peripheral = CBPeripheralManager(delegate: self, queue: nil)
     }
 
+    // Re-arm scan + advertise after a foreground transition. iOS stops both
+    // while the app is backgrounded, and CBCentralManager only auto-starts a
+    // scan inside centralManagerDidUpdateState on a .poweredOn transition —
+    // which does NOT re-fire when Bluetooth was already on. Without this an
+    // iPhone that locked stays deaf (not scanning) and silent (not advertising)
+    // and never rejoins the mesh.
+    func resume() {
+        if central?.state == .poweredOn && central?.isScanning == false {
+            central.scanForPeripherals(withServices: [PEAT_SERVICE_UUID_16],
+                                       options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
+        }
+        if peripheral?.state == .poweredOn {
+            if !serviceAdded { setupGattService() }
+            else if peripheral?.isAdvertising == false { startAdvertising() }
+        }
+    }
+
     func stop() {
         if central?.isScanning == true { central.stopScan() }
         for (_, p) in connected { central.cancelPeripheralConnection(p) }
@@ -214,6 +231,11 @@ final class PeatBleBridge: NSObject, FlutterStreamHandler {
             result(true)
         case "stopBle", "unbindBle":
             stopBle()
+            result(true)
+        case "bleResume":
+            // App returned to foreground. iOS suspended scan/advertise while
+            // backgrounded and won't auto-restart them; kick them back on.
+            if started { radio.resume() }
             result(true)
         case "bleTx":
             guard let m = mesh else { result(false); return }

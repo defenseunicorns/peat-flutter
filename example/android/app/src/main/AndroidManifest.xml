@@ -1,4 +1,14 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- peat-btle 0.4.0 declares ACCESS_FINE_LOCATION with maxSdkVersion=30,
+         while the peat_flutter plugin declares it with 32. Two sibling library
+         manifests with conflicting values can't be reconciled by either one's
+         tools:replace — it must be resolved here at the app level (highest
+         merge priority). Match the plugin's value (32: Wi-Fi Direct discovery
+         needs FINE_LOCATION up to API 32; API 33+ uses NEARBY_WIFI_DEVICES). -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
+        android:maxSdkVersion="32"
+        tools:replace="android:maxSdkVersion" />
     <application
         android:label="peat_flutter_example"
         android:name="${applicationName}"

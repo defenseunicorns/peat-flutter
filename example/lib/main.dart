@@ -73,7 +73,8 @@ class PeatExampleHome extends StatefulWidget {
   State<PeatExampleHome> createState() => _PeatExampleHomeState();
 }
 
-class _PeatExampleHomeState extends State<PeatExampleHome> {
+class _PeatExampleHomeState extends State<PeatExampleHome>
+    with WidgetsBindingObserver {
   PeatFlutterNode? _node;
   String? _nodeId;
   String _hostName = '';
@@ -112,6 +113,9 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
   Set<String> _lastCellPeers = {};
   // Track command IDs we've already claimed so we don't double-increment.
   final Set<String> _claimedCommandIds = {};
+  // Diagnostic: log each WATER_REQUEST's raw parameters once (to see exactly
+  // what an iOS-originated command looks like on the wire vs Android's).
+  final Set<String> _diagLoggedCmds = {};
   // Only auto-claim commands issued after this session started.
   int _sessionStartMs = 0;
 
@@ -192,6 +196,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Default capabilities by platform role; macOS = command post.
     if (Platform.isMacOS) {
       _myCapabilities = ['leader', 'comms', 'logistics'];
@@ -374,6 +379,12 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
         try {
           final cells = _node!.cells;
           final cmds = _node!.commands;
+          for (final c in cmds) {
+            if (c.commandType == 'WATER_REQUEST' && _diagLoggedCmds.add(c.id)) {
+              debugPrint('[peat] WATER_REQUEST ${c.id} '
+                  'originator=${c.originator} rawParams=${c.parameters}');
+            }
+          }
           if (mounted) setState(() {
             _activeCell = cells.isNotEmpty ? cells.first : null;
             _commands = cmds;
@@ -1211,8 +1222,19 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
   }
 
   Map<String, dynamic> _parseParams(String params) {
-    try { return jsonDecode(params) as Map<String, dynamic>; }
-    catch (_) { return {}; }
+    try {
+      var decoded = jsonDecode(params);
+      // The iOS publish path can double-encode `parameters` as a JSON *string*
+      // (object -> "{\"quantity\":..}") rather than a nested object the way the
+      // Android path does — so a single decode yields a String, not a Map, and
+      // params['from'] comes back null ("unknown" requester, broken fulfill).
+      // Decode once more in that case so iOS-originated commands resolve too.
+      if (decoded is String) decoded = jsonDecode(decoded);
+      return (decoded as Map).cast<String, dynamic>();
+    } catch (e) {
+      debugPrint('[peat] _parseParams failed for: $params ($e)');
+      return {};
+    }
   }
 
   Widget _aboutRow(ThemeData theme, String label, String value) {
@@ -1619,6 +1641,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _changeSub?.cancel();
     _outboundSub?.cancel();
     _peerTimer?.cancel();
@@ -1628,6 +1651,24 @@ class _PeatExampleHomeState extends State<PeatExampleHome> {
     _callsignFocus.dispose();
     _node?.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Returning to the foreground after a lock/background. iOS suspends BLE
+    // scanning + advertising while backgrounded and does NOT auto-resume them:
+    // CBCentralManager only (re)starts a scan inside centralManagerDidUpdateState
+    // on a transition to .poweredOn, which never re-fires when Bluetooth was
+    // already on. So without this, an iPhone that locked goes deaf/silent and
+    // never rejoins the mesh. Kick the radio back on and re-publish our
+    // heartbeat + counter so peers immediately see us as live again.
+    if (state == AppLifecycleState.resumed && _node != null && _bleRunning) {
+      if (Platform.isIOS) {
+        _bleChannel.invokeMethod('bleResume').catchError((_) => null);
+      }
+      _publishSelf(_node!);
+      _flushMyCounter(_node!);
+    }
   }
 
   @override
