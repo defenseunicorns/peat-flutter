@@ -1,0 +1,42 @@
+# Copyright 2026 Defense Unicorns
+# SPDX-License-Identifier: Apache-2.0
+
+name: License headers
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: SPDX header check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Install addlicense
+        run: go install github.com/google/addlicense@latest
+
+      # Check authored Dart sources carry the Apache-2.0 SPDX header. Generated
+      # bindings/proto stubs and Flutter platform scaffolding are excluded — see
+      # .license_config.yaml for the canonical ignore list.
+      - name: Check headers
+        run: |
+          addlicense -check \
+            -l apache \
+            -c "Defense Unicorns" \
+            -s=only \
+            -ignore "lib/src/generated/**" \
+            -ignore "lib/src/proto/**" \
+            lib

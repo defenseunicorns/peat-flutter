@@ -1,3 +1,6 @@
+// Copyright 2026 Defense Unicorns
+// SPDX-License-Identifier: Apache-2.0
+
 // peat_flutter — Dart facade over the UniFFI-generated peat-ffi bindings.
 
 import 'dart:async';
