@@ -215,7 +215,6 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   StreamSubscription<OutboundFrame>? _outboundSub;
   StreamSubscription<dynamic>? _bleRxSub; // iOS: inbound BLE relay payloads
   final Map<String, int> _lastTxMs = {}; // iOS: outbound frame de-dup (echo suppression)
-  int _publishCount = 0;
 
   // CRDT-frame reassembly buffer (iOS receive). A large Automerge doc (hex)
   // exceeds the ~512B BLE wire ceiling, so _broadcastCrdt splits it into
@@ -229,8 +228,6 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   // quiet. The "Connections" view is the UNION of this (direct + multi-hop
   // reachable) and the local connection-based store, per-device.
   String? _lastSelfNodeJson; // last identity/caps PUT (re-PUT only on change)
-
-  static bool get _isMobile => Platform.isAndroid || Platform.isIOS;
 
   // NATO phonetic call signs — pick a random one as the default identity.
   static const _callsignPool = [
@@ -1800,33 +1797,6 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     );
   }
 
-  Widget _contribChip({
-    required BuildContext context,
-    required String label,
-    required int value,
-    required ThemeData theme,
-    required bool isMe,
-  }) {
-    final color = isMe ? theme.colorScheme.primary : theme.colorScheme.secondary;
-    // Shorten label: "macOS · H42W5J2K26" → "macOS", "iPhone (simulator)" → "iPhone"
-    final shortLabel = label.split(' ·').first.split(' (').first.trim();
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Text(
-        '$shortLabel: $value',
-        style: theme.textTheme.labelSmall?.copyWith(
-          color: color,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-
   Color _collectionColor(String collection, ThemeData theme) {
     // Stable color per collection name
     final colors = [
@@ -1834,21 +1804,6 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       Colors.orange, Colors.pink, Colors.indigo,
     ];
     return colors[collection.hashCode.abs() % colors.length];
-  }
-
-  void _publishTest() {
-    final node = _node;
-    if (node == null) return;
-    final count = ++_publishCount;
-    try {
-      final docId = node.publishRaw(
-        'test',
-        '{"seq":$count,"ts":${DateTime.now().millisecondsSinceEpoch}}',
-      );
-      // The subscription listener will add this to the change feed.
-    } catch (e) {
-      setState(() => _error = e.toString());
-    }
   }
 
   void _startBle([PeatFlutterNode? explicit]) {
@@ -1993,24 +1948,6 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
         setState(() => _wifiDirectOn = false);
       });
     }
-  }
-
-  void _stopBle() {
-    if (Platform.isAndroid) {
-      _bleChannel.invokeMethod('stopBle').catchError((_) {});
-      setState(() => _bleRunning = false);
-      return;
-    }
-    if (Platform.isIOS) {
-      _bleChannel.invokeMethod('stopBle').catchError((_) => null);
-      _bleRxSub?.cancel();
-      _bleRxSub = null;
-    }
-    _outboundSub?.cancel();
-    setState(() {
-      _outboundSub = null;
-      _bleRunning = false;
-    });
   }
 
   void _stopNode() {
