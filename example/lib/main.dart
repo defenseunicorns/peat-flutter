@@ -182,10 +182,6 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   final Map<String, int> _nodeHbSeen = {};
   final Map<String, int> _nodeSeenLocal = {};
 
-  // PN-Counter CRDT: each node maintains its own (inc, dec) slot so
-  // offline edits from multiple nodes merge additively on reconnect.
-  // Total = Σ (inc_i - dec_i) across all nodes.
-  static const _counterCollection = 'demo';
   // Shared water supply is ONE Automerge Counter doc (CRDT-over-Automerge-over-
   // BLE). Its save() bytes (hex) ride in a single shared doc id in the `demo`
   // collection — reusing the existing BLE doc-sync transport — and merge
@@ -214,7 +210,6 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   // Friendly name for each peer's counter slot (legacy; kept for the roster).
   final Map<String, String> _peerNames = {};
   int get _counterValue => _crdtTotal;
-  String? _counterLastBy;
   Timer? _counterTimer;
   StreamSubscription<DocumentChange>? _changeSub;
   StreamSubscription<OutboundFrame>? _outboundSub;
@@ -534,7 +529,6 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
           // propagates to every node. Claiming here too would double-count.)
         } catch (_) {}
 
-        final seen = <String>{};
         setState(() {
           _peers = _node!.connectedPeers;
           _syncStats = _node!.syncStats;
@@ -1138,7 +1132,6 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       setState(() {
         _myLiters = newMine;
         _crdtTotal = h.total - h.mine + newMine; // total moves by delta
-        _counterLastBy = _callsign;
       });
     }
   }
@@ -2066,7 +2059,6 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       _counterTimer = null;
       _peers = [];
       _syncStats = null;
-      _counterLastBy = null;
       _peerNames.clear();
       _missionDays = 0;
       _missionSetBy = null;
@@ -2441,7 +2433,6 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
                           transports.add(Icon(Icons.alt_route,
                               size: 14, color: Colors.orange.shade700));
                         }
-                        final isConnected = true; // listed => reachable
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 3),
                           child: Row(children: [
@@ -2459,12 +2450,8 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
                                 children: [
                                   Text(
                                     n.name, // callsign
-                                    style: theme.textTheme.bodyMedium?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                      color: isConnected
-                                          ? null
-                                          : theme.colorScheme.outline,
-                                    ),
+                                    style: theme.textTheme.bodyMedium
+                                        ?.copyWith(fontWeight: FontWeight.bold),
                                   ),
                                 ],
                               ),
