@@ -245,6 +245,11 @@ final class PeatBleBridge: NSObject, FlutterStreamHandler {
             result(true)
         case "blePeerCount":
             result(radio.peerCount)
+        case "blePeerIds":
+            // Node-ids (32-bit) of directly-connected mesh peers, so Dart can
+            // mark Connections rows "direct" vs "relayed". The mesh layer knows
+            // peer node-ids (the radio only knows CoreBluetooth UUIDs).
+            result((mesh?.getConnectedPeers() ?? []).map { Int($0.nodeId) })
         case "isBleRunning":
             result(started)
         default:

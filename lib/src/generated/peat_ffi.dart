@@ -6842,6 +6842,261 @@ class PeatFfiFfi {
     }
   }
 
+  // ── Shared water-supply Counter (CRDT-over-Automerge-over-BLE) ──────────
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeCrdtCounterValueFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_crdt_counter_value');
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeCrdtCounterIncrementFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_crdt_counter_increment');
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeCrdtCounterMergeFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_crdt_counter_merge');
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeCrdtCounterSnapshotFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_crdt_counter_snapshot');
+
+  int _crdtCloneHandle(int handle) {
+    final cloneStatusPtr = calloc<_UniFfiRustCallStatus>();
+    try {
+      cloneStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
+      cloneStatusPtr.ref.errorBuf
+        ..capacity = 0
+        ..len = 0
+        ..data = ffi.nullptr;
+      final h = _peatNodeClone(handle, cloneStatusPtr);
+      if (cloneStatusPtr.ref.code != _uniFfiRustCallStatusSuccess) {
+        throw StateError('UniFFI clone failed with status ${cloneStatusPtr.ref.code}');
+      }
+      return h;
+    } finally {
+      calloc.free(cloneStatusPtr);
+    }
+  }
+
+  // Checks a scalar-return status word at returnBuf[statusIdx]; throws on error.
+  void _crdtCheckStatus(ffi.Pointer<_UniFfiFfiBufferElement> returnBuf, int statusIdx,
+      List<ffi.Pointer<_UniFfiRustBuffer>> rustRetBufferPtrs) {
+    final int statusCode = (returnBuf + statusIdx).ref.i8;
+    if (statusCode == _uniFfiRustCallStatusSuccess) return;
+    final errBufPtr = calloc<_UniFfiRustBuffer>();
+    errBufPtr.ref
+      ..capacity = (returnBuf + statusIdx + 1).ref.u64
+      ..len = (returnBuf + statusIdx + 2).ref.u64
+      ..data = (returnBuf + statusIdx + 3).ref.ptr.cast<ffi.Uint8>();
+    rustRetBufferPtrs.add(errBufPtr);
+    if (statusCode == _uniFfiRustCallStatusError) {
+      final errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+      throw _uniffiLiftPeatErrorException(errBytes);
+    }
+    throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+  }
+
+  void _crdtFreeRetBuffers(List<ffi.Pointer<_UniFfiRustBuffer>> rustRetBufferPtrs) {
+    for (final bufPtr in rustRetBufferPtrs) {
+      if (bufPtr.ref.data == ffi.nullptr && bufPtr.ref.len == 0 && bufPtr.ref.capacity == 0) continue;
+      final freeStatusPtr = calloc<_UniFfiRustCallStatus>();
+      freeStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
+      freeStatusPtr.ref.errorBuf..capacity = 0..len = 0..data = ffi.nullptr;
+      _uniFfiRustBufferFree(bufPtr.ref, freeStatusPtr);
+      calloc.free(freeStatusPtr);
+      calloc.free(bufPtr);
+    }
+  }
+
+  /// Lower a Dart String into argBuf[idx..idx+2] as a UniFFI RustBuffer.
+  /// Returns the foreign byte pointer to free later.
+  ffi.Pointer<ffi.Uint8> _crdtLowerString(
+      ffi.Pointer<_UniFfiFfiBufferElement> argBuf, int idx, String s) {
+    final bytes = Uint8List.fromList(utf8.encode(s));
+    final ptr = bytes.isEmpty ? ffi.nullptr : calloc<ffi.Uint8>(bytes.length);
+    if (bytes.isNotEmpty) ptr.asTypedList(bytes.length).setAll(0, bytes);
+    final statusPtr = calloc<_UniFfiRustCallStatus>();
+    statusPtr.ref.code = _uniFfiRustCallStatusSuccess;
+    statusPtr.ref.errorBuf..capacity = 0..len = 0..data = ffi.nullptr;
+    final foreignPtr = calloc<_UniFfiForeignBytes>();
+    foreignPtr.ref..len = bytes.length..data = ptr;
+    final rb = _uniFfiRustBufferFromBytes(foreignPtr.ref, statusPtr);
+    calloc.free(foreignPtr);
+    calloc.free(statusPtr);
+    (argBuf + idx).ref.u64 = rb.capacity;
+    (argBuf + idx + 1).ref.u64 = rb.len;
+    (argBuf + idx + 2).ref.ptr = rb.data.cast<ffi.Void>();
+    return ptr;
+  }
+
+  int peatNodeInvokeCrdtCounterValue(int handle) {
+    final argBuf = calloc<_UniFfiFfiBufferElement>(1);
+    final returnBuf = calloc<_UniFfiFfiBufferElement>(5);
+    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
+    try {
+      (argBuf + 0).ref.u64 = _crdtCloneHandle(handle);
+      _peatNodeCrdtCounterValueFfiBuffer(argBuf, returnBuf);
+      _crdtCheckStatus(returnBuf, 1, rustRetBufferPtrs);
+      return (returnBuf + 0).ref.i64;
+    } finally {
+      _crdtFreeRetBuffers(rustRetBufferPtrs);
+      calloc.free(argBuf);
+      calloc.free(returnBuf);
+    }
+  }
+
+  String peatNodeInvokeCrdtCounterIncrement(int handle, int delta) {
+    final argBuf = calloc<_UniFfiFfiBufferElement>(2);
+    final returnBuf = calloc<_UniFfiFfiBufferElement>(7);
+    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
+    try {
+      (argBuf + 0).ref.u64 = _crdtCloneHandle(handle);
+      (argBuf + 1).ref.i64 = delta;
+      _peatNodeCrdtCounterIncrementFfiBuffer(argBuf, returnBuf);
+      _crdtCheckStatus(returnBuf, 3, rustRetBufferPtrs);
+      final retBufPtr = calloc<_UniFfiRustBuffer>();
+      retBufPtr.ref
+        ..capacity = (returnBuf + 0).ref.u64
+        ..len = (returnBuf + 1).ref.u64
+        ..data = (returnBuf + 2).ref.ptr.cast<ffi.Uint8>();
+      rustRetBufferPtrs.add(retBufPtr);
+      final retBytes = retBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(retBufPtr.ref.data.asTypedList(retBufPtr.ref.len));
+      return utf8.decode(retBytes); // bare String return = raw utf8 (no len prefix)
+    } finally {
+      _crdtFreeRetBuffers(rustRetBufferPtrs);
+      calloc.free(argBuf);
+      calloc.free(returnBuf);
+    }
+  }
+
+  int peatNodeInvokeCrdtCounterMerge(int handle, String hexDoc) {
+    final argBuf = calloc<_UniFfiFfiBufferElement>(4);
+    final returnBuf = calloc<_UniFfiFfiBufferElement>(5);
+    final foreignArgPtrs = <ffi.Pointer<ffi.Uint8>>[];
+    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
+    try {
+      (argBuf + 0).ref.u64 = _crdtCloneHandle(handle);
+      foreignArgPtrs.add(_crdtLowerString(argBuf, 1, hexDoc));
+      _peatNodeCrdtCounterMergeFfiBuffer(argBuf, returnBuf);
+      _crdtCheckStatus(returnBuf, 1, rustRetBufferPtrs);
+      return (returnBuf + 0).ref.i64;
+    } finally {
+      for (final ptr in foreignArgPtrs) {
+        if (ptr != ffi.nullptr) calloc.free(ptr);
+      }
+      _crdtFreeRetBuffers(rustRetBufferPtrs);
+      calloc.free(argBuf);
+      calloc.free(returnBuf);
+    }
+  }
+
+  String peatNodeInvokeCrdtCounterSnapshot(int handle) {
+    final argBuf = calloc<_UniFfiFfiBufferElement>(1);
+    final returnBuf = calloc<_UniFfiFfiBufferElement>(7);
+    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
+    try {
+      (argBuf + 0).ref.u64 = _crdtCloneHandle(handle);
+      _peatNodeCrdtCounterSnapshotFfiBuffer(argBuf, returnBuf);
+      _crdtCheckStatus(returnBuf, 3, rustRetBufferPtrs);
+      final retBufPtr = calloc<_UniFfiRustBuffer>();
+      retBufPtr.ref
+        ..capacity = (returnBuf + 0).ref.u64
+        ..len = (returnBuf + 1).ref.u64
+        ..data = (returnBuf + 2).ref.ptr.cast<ffi.Uint8>();
+      rustRetBufferPtrs.add(retBufPtr);
+      final retBytes = retBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(retBufPtr.ref.data.asTypedList(retBufPtr.ref.len));
+      return utf8.decode(retBytes); // bare String return = raw utf8 (no len prefix)
+    } finally {
+      _crdtFreeRetBuffers(rustRetBufferPtrs);
+      calloc.free(argBuf);
+      calloc.free(returnBuf);
+    }
+  }
+
+  // ── Generic CRDT KV documents (bare String returns = raw utf8) ──────────
+  String _crdtReadStringRet(ffi.Pointer<_UniFfiFfiBufferElement> returnBuf,
+      List<ffi.Pointer<_UniFfiRustBuffer>> rustRetBufferPtrs) {
+    final retBufPtr = calloc<_UniFfiRustBuffer>();
+    retBufPtr.ref
+      ..capacity = (returnBuf + 0).ref.u64
+      ..len = (returnBuf + 1).ref.u64
+      ..data = (returnBuf + 2).ref.ptr.cast<ffi.Uint8>();
+    rustRetBufferPtrs.add(retBufPtr);
+    final retBytes = retBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(retBufPtr.ref.data.asTypedList(retBufPtr.ref.len));
+    return utf8.decode(retBytes);
+  }
+
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeCrdtKvPutFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_crdt_kv_put');
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeCrdtKvAllFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_crdt_kv_all');
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeCrdtKvMergeFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_crdt_kv_merge');
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeCrdtKvSnapshotFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_crdt_kv_snapshot');
+
+  String peatNodeInvokeCrdtKvPut(int handle, String collection, String key, String value) {
+    final argBuf = calloc<_UniFfiFfiBufferElement>(10);
+    final returnBuf = calloc<_UniFfiFfiBufferElement>(7);
+    final foreignArgPtrs = <ffi.Pointer<ffi.Uint8>>[];
+    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
+    try {
+      (argBuf + 0).ref.u64 = _crdtCloneHandle(handle);
+      foreignArgPtrs.add(_crdtLowerString(argBuf, 1, collection));
+      foreignArgPtrs.add(_crdtLowerString(argBuf, 4, key));
+      foreignArgPtrs.add(_crdtLowerString(argBuf, 7, value));
+      _peatNodeCrdtKvPutFfiBuffer(argBuf, returnBuf);
+      _crdtCheckStatus(returnBuf, 3, rustRetBufferPtrs);
+      return _crdtReadStringRet(returnBuf, rustRetBufferPtrs);
+    } finally {
+      for (final ptr in foreignArgPtrs) { if (ptr != ffi.nullptr) calloc.free(ptr); }
+      _crdtFreeRetBuffers(rustRetBufferPtrs);
+      calloc.free(argBuf);
+      calloc.free(returnBuf);
+    }
+  }
+
+  String peatNodeInvokeCrdtKvAll(int handle, String collection) {
+    final argBuf = calloc<_UniFfiFfiBufferElement>(4);
+    final returnBuf = calloc<_UniFfiFfiBufferElement>(7);
+    final foreignArgPtrs = <ffi.Pointer<ffi.Uint8>>[];
+    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
+    try {
+      (argBuf + 0).ref.u64 = _crdtCloneHandle(handle);
+      foreignArgPtrs.add(_crdtLowerString(argBuf, 1, collection));
+      _peatNodeCrdtKvAllFfiBuffer(argBuf, returnBuf);
+      _crdtCheckStatus(returnBuf, 3, rustRetBufferPtrs);
+      return _crdtReadStringRet(returnBuf, rustRetBufferPtrs);
+    } finally {
+      for (final ptr in foreignArgPtrs) { if (ptr != ffi.nullptr) calloc.free(ptr); }
+      _crdtFreeRetBuffers(rustRetBufferPtrs);
+      calloc.free(argBuf);
+      calloc.free(returnBuf);
+    }
+  }
+
+  void peatNodeInvokeCrdtKvMerge(int handle, String collection, String hexDoc) {
+    final argBuf = calloc<_UniFfiFfiBufferElement>(7);
+    final returnBuf = calloc<_UniFfiFfiBufferElement>(5);
+    final foreignArgPtrs = <ffi.Pointer<ffi.Uint8>>[];
+    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
+    try {
+      (argBuf + 0).ref.u64 = _crdtCloneHandle(handle);
+      foreignArgPtrs.add(_crdtLowerString(argBuf, 1, collection));
+      foreignArgPtrs.add(_crdtLowerString(argBuf, 4, hexDoc));
+      _peatNodeCrdtKvMergeFfiBuffer(argBuf, returnBuf);
+      _crdtCheckStatus(returnBuf, 1, rustRetBufferPtrs); // void: status at [1]
+    } finally {
+      for (final ptr in foreignArgPtrs) { if (ptr != ffi.nullptr) calloc.free(ptr); }
+      _crdtFreeRetBuffers(rustRetBufferPtrs);
+      calloc.free(argBuf);
+      calloc.free(returnBuf);
+    }
+  }
+
+  String peatNodeInvokeCrdtKvSnapshot(int handle, String collection) {
+    final argBuf = calloc<_UniFfiFfiBufferElement>(4);
+    final returnBuf = calloc<_UniFfiFfiBufferElement>(7);
+    final foreignArgPtrs = <ffi.Pointer<ffi.Uint8>>[];
+    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
+    try {
+      (argBuf + 0).ref.u64 = _crdtCloneHandle(handle);
+      foreignArgPtrs.add(_crdtLowerString(argBuf, 1, collection));
+      _peatNodeCrdtKvSnapshotFfiBuffer(argBuf, returnBuf);
+      _crdtCheckStatus(returnBuf, 3, rustRetBufferPtrs);
+      return _crdtReadStringRet(returnBuf, rustRetBufferPtrs);
+    } finally {
+      for (final ptr in foreignArgPtrs) { if (ptr != ffi.nullptr) calloc.free(ptr); }
+      _crdtFreeRetBuffers(rustRetBufferPtrs);
+      calloc.free(argBuf);
+      calloc.free(returnBuf);
+    }
+  }
+
   late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodePeerTransportStateFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_peer_transport_state');
 
   PeerTransportState peatNodeInvokePeerTransportState(int handle, String peerId) {
@@ -9007,6 +9262,58 @@ final class PeatNode {
   int peerCount() {
     _ensureOpen();
     return _ffi.peatNodeInvokePeerCount(_handle);
+  }
+
+  // ── Shared water-supply Counter (CRDT-over-Automerge-over-BLE) ──────────
+  /// Current merged value of the shared water-supply Counter.
+  int crdtCounterValue() {
+    _ensureOpen();
+    return _ffi.peatNodeInvokeCrdtCounterValue(_handle);
+  }
+
+  /// Apply [delta] liters to the shared Counter; returns the doc save() bytes
+  /// (hex) to broadcast to peers.
+  String crdtCounterIncrement(int delta) {
+    _ensureOpen();
+    return _ffi.peatNodeInvokeCrdtCounterIncrement(_handle, delta);
+  }
+
+  /// Merge an inbound peer doc (hex); returns the new value. Safe with
+  /// duplicate / stale / relayed / out-of-order input.
+  int crdtCounterMerge(String hexDoc) {
+    _ensureOpen();
+    return _ffi.peatNodeInvokeCrdtCounterMerge(_handle, hexDoc);
+  }
+
+  /// Current doc save() bytes (hex), for periodic re-broadcast (catch-up).
+  String crdtCounterSnapshot() {
+    _ensureOpen();
+    return _ffi.peatNodeInvokeCrdtCounterSnapshot(_handle);
+  }
+
+  // ── Generic CRDT KV documents ───────────────────────────────────────────
+  /// Upsert key=value_json in collection; returns hex doc bytes to broadcast.
+  String crdtKvPut(String collection, String key, String valueJson) {
+    _ensureOpen();
+    return _ffi.peatNodeInvokeCrdtKvPut(_handle, collection, key, valueJson);
+  }
+
+  /// All records in collection as a JSON object {key: value}.
+  String crdtKvAll(String collection) {
+    _ensureOpen();
+    return _ffi.peatNodeInvokeCrdtKvAll(_handle, collection);
+  }
+
+  /// Merge an inbound peer doc (hex) into collection.
+  void crdtKvMerge(String collection, String hexDoc) {
+    _ensureOpen();
+    _ffi.peatNodeInvokeCrdtKvMerge(_handle, collection, hexDoc);
+  }
+
+  /// Current hex doc bytes of collection (periodic re-broadcast).
+  String crdtKvSnapshot(String collection) {
+    _ensureOpen();
+    return _ffi.peatNodeInvokeCrdtKvSnapshot(_handle, collection);
   }
 
   /// ADR-032 §Amendment A — unified per-peer transport state.

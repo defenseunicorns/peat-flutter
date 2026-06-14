@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'dart:typed_data';
 import 'package:flutter/services.dart' show SystemUiOverlayStyle, SystemChrome, MethodChannel, EventChannel;
 import 'package:path_provider/path_provider.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:peat_flutter/peat_flutter.dart';
 import 'package:peat_flutter/src/generated/peat_ffi.dart' show SyncStats, TransportConfigFFI;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -84,6 +85,19 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   bool _bleRunning = false;
   int _bleFrameCount = 0;
   int _blePeerCount = 0; // connected BLE peers (Android peat-btle bridge)
+  // Node-ids (32-bit, first 8 hex of the full node id) of DIRECTLY-connected
+  // BLE peers — from the native bridge. Lets Connections mark a peer "direct"
+  // vs "relayed" (reachable only via the CRDT relay = not in this set).
+  Set<int> _directPeerIds = {};
+  // Each node advertises its own direct-peer set in its presence doc; this maps
+  // a node's short id -> the short ids IT reports as directly connected. A BLE
+  // link is bidirectional, so we treat a peer as "direct" if it's in our set OR
+  // we're in its set (the central side may not register the peer locally even
+  // though the peripheral side does — e.g. the iPad dialing out to the phones).
+  Map<int, Set<int>> _advertisedDirect = {};
+  // Short ids of peers that advertise Wi-Fi-Direct capability (Android with
+  // Wi-Fi on). The Wi-Fi badge only shows for these — iOS (iPad) is BLE-only.
+  Set<int> _wifiPeers = {};
   // Android BLE transport bridge (peat-btle pipe) lives in native MainActivity.
   static const MethodChannel _bleChannel = MethodChannel('peat/ble');
   // iOS BLE inbound: native PeatBleBridge streams decrypted 0xAF relay payloads
@@ -109,15 +123,26 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   // Cell and Command state
   CellInfo? _activeCell;
   List<CommandInfo> _commands = [];
-  // Track last peer set so the leader can auto-reform on change.
-  Set<String> _lastCellPeers = {};
+  // The cell doc id. The leader publishes a single curated cell; its `members`
+  // list is the source of truth for membership (read back by every node).
+  static const _cellDocId = 'alpha-cell';
+  // Committed cell membership, mirrored from the synced cell doc's `members`
+  // list. Keyed by CALLSIGN — the stable interim identity (a node id churns on
+  // reset/reinstall; a callsign does not, until a future hardware-based id).
+  // Curated explicitly via Reform / Add / Remove — it does NOT auto-follow the
+  // roster, so a node dropping out doesn't mutate the cell.
+  final Set<String> _cellMembers = {};
+  // node id -> callsign, for resolving roster + available nodes in the UI.
+  final Map<String, String> _nodeNames = {};
   // Track command IDs we've already claimed so we don't double-increment.
   final Set<String> _claimedCommandIds = {};
-  // Diagnostic: log each WATER_REQUEST's raw parameters once (to see exactly
-  // what an iOS-originated command looks like on the wire vs Android's).
-  final Set<String> _diagLoggedCmds = {};
   // Only auto-claim commands issued after this session started.
   int _sessionStartMs = 0;
+  // Resupply transfer: a requestor credits its own "yours" +qty exactly once
+  // when it sees ITS request flip to COMPLETED. The shared total is unchanged
+  // (it's a transfer, not new water) — the leader debits its own "yours" -qty
+  // on fulfill — so neither side touches the shared counter and no double-count.
+  final Set<String> _claimedReqs = {};
 
   // Mission objective (leader-set, shared via CRDT)
   static const _missionCollection = 'mission';
@@ -161,20 +186,34 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   // offline edits from multiple nodes merge additively on reconnect.
   // Total = Σ (inc_i - dec_i) across all nodes.
   static const _counterCollection = 'demo';
-  // My own slot key — keyed on the NODE ID (unique crypto key) so that
-  // two iOS devices with the same hostname don't collide.
-  String _myCounterDocKey = ''; // set in _startNode from node.nodeId
-  String get _myCounterDoc => _myCounterDocKey.isNotEmpty
-      ? _myCounterDocKey
-      : 'counter-${_hostName.replaceAll(' ', '_').replaceAll('·', '-')}';
-  int _myInc = 0;
-  int _myDec = 0;
-  bool _counterDirty = false; // local edits not yet flushed to store
-  // Contributions from peers: docId → (inc - dec)
-  final Map<String, int> _peerContributions = {};
-  // Friendly name for each peer's counter slot
+  // Shared water supply is ONE Automerge Counter doc (CRDT-over-Automerge-over-
+  // BLE). Its save() bytes (hex) ride in a single shared doc id in the `demo`
+  // collection — reusing the existing BLE doc-sync transport — and merge
+  // natively on receipt (commutative/idempotent). See docs/crdt-counter-over-ble.md.
+  static const _supplyDocId = 'supply'; // legacy (standalone counter) — unused
+  // Water supply is a PER-NODE holdings CRDT document: collection 'holdings',
+  // keyed by callsign, value = that node's liters count. "yours" = my entry;
+  // "total" = the SUM of all entries. Both derive from synced/persisted CRDT
+  // state (no local-only tally that resets to 0 on restart), so they converge
+  // and survive restarts. A transfer (fulfill) is requestor-entry +qty /
+  // leader-entry -qty → the sum is unchanged.
+  static const _holdingsCollection = 'holdings';
+  // Build signature injected at compile time (--dart-define=PEAT_BUILD_ID=...).
+  // When it differs from the last value we started with, the app binary was
+  // redeployed — so we auto-wipe the persisted store on the next Start to avoid
+  // the stale-counter "0/N" state (the shared total persists across a reinstall
+  // but the local "yours" tally resets). Same build → no wipe, so a normal
+  // mid-demo restart still converges. 'dev' is the default for un-stamped builds.
+  static const _buildId = String.fromEnvironment('PEAT_BUILD_ID', defaultValue: 'dev');
+  // Last value read from the local Automerge counter (the shared total).
+  int _crdtTotal = 0;
+  // This device's own cumulative contribution, for the "yours" display (local
+  // tally only — the pool total is the CRDT value).
+  int _myLiters = 0;
+  bool _counterDirty = false; // retained for the UI chip; unused by the CRDT path
+  // Friendly name for each peer's counter slot (legacy; kept for the roster).
   final Map<String, String> _peerNames = {};
-  int get _counterValue => (_myInc - _myDec) + _peerContributions.values.fold(0, (a, b) => a + b);
+  int get _counterValue => _crdtTotal;
   String? _counterLastBy;
   Timer? _counterTimer;
   StreamSubscription<DocumentChange>? _changeSub;
@@ -182,6 +221,19 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   StreamSubscription<dynamic>? _bleRxSub; // iOS: inbound BLE relay payloads
   final Map<String, int> _lastTxMs = {}; // iOS: outbound frame de-dup (echo suppression)
   int _publishCount = 0;
+
+  // CRDT-frame reassembly buffer (iOS receive). A large Automerge doc (hex)
+  // exceeds the ~512B BLE wire ceiling, so _broadcastCrdt splits it into
+  // fragments; we collect them here keyed by "collection:msgId" until the full
+  // set arrives, then merge. Idempotent: re-sent/duplicate fragments are fine.
+  final Map<String, Map<int, Uint8List>> _crdtReasm = {};
+
+  // Presence over the CRDT relay (the only transport that reliably carries
+  // iPad<->Android both ways — the connection-based/lite path is asymmetric).
+  // Change-detected PUT + round-robin catch-up keep the doc tiny and the radio
+  // quiet. The "Connections" view is the UNION of this (direct + multi-hop
+  // reachable) and the local connection-based store, per-device.
+  String? _lastSelfNodeJson; // last identity/caps PUT (re-PUT only on change)
 
   static bool get _isMobile => Platform.isAndroid || Platform.isIOS;
 
@@ -205,25 +257,32 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     } else {
       _myCapabilities = ['comms'];
     }
-    // Random unique default callsign: e.g. "Tango-47"
+    // Provisional random callsign until the device-derived one resolves async.
     final rng = Random();
     _hostName =
         '${_callsignPool[rng.nextInt(_callsignPool.length)]}-${rng.nextInt(90) + 10}';
     _callsignCtrl = TextEditingController(text: _hostName);
     _callsignPrev = _hostName;
-    // Load persisted callsign (device identity) from prefs. Capabilities are
-    // NOT persisted here — they live in this node's Peat document and are
-    // restored from the store on node start (see _startNode), so a database
-    // reset clears them (correct) and they still sync to peers + survive a
-    // restart via the store.
-    SharedPreferences.getInstance().then((prefs) {
+    // Callsign = STABLE per-device identity. Prefer a saved (user-renamed) one;
+    // otherwise derive deterministically from the device's hardware ID (Android
+    // ANDROID_ID / iOS identifierForVendor) so a given device is ALWAYS the same
+    // callsign across reinstalls/resets. This stabilizes everything keyed by
+    // callsign (holdings, presence) and stops zombie identities accumulating.
+    SharedPreferences.getInstance().then((prefs) async {
       final saved = prefs.getString('callsign');
-      if (mounted) {
+      if (saved != null && saved.isNotEmpty) {
+        if (mounted) setState(() {
+          _callsignCtrl.text = saved;
+          _callsignPrev = saved;
+        });
+        return;
+      }
+      final dev = await _deviceCallsign();
+      if (dev != null && mounted) {
         setState(() {
-          if (saved != null && saved.isNotEmpty) {
-            _callsignCtrl.text = saved;
-            _callsignPrev = saved;
-          }
+          _hostName = dev;
+          _callsignCtrl.text = dev;
+          _callsignPrev = dev;
         });
       }
     });
@@ -273,6 +332,28 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
             '${Random().nextInt(1 << 31).toRadixString(36)}';
         await prefs.setString('install_id', installId);
       }
+      // Auto-wipe the persisted store if the app binary changed since we last
+      // started (a redeploy). This must run BEFORE the node opens the store.
+      // Skipped for un-stamped 'dev' builds and on a same-build restart, so
+      // only an actual reinstall triggers the clean slate.
+      if (_buildId != 'dev' && prefs.getString('build_id') != _buildId) {
+        var wiped = 0;
+        if (await dir.exists()) {
+          await for (final entry in dir.list()) {
+            final name = entry.path.split(Platform.pathSeparator).last;
+            if (entry is Directory &&
+                (name == 'peat' || name.startsWith('peat-'))) {
+              await entry.delete(recursive: true);
+              wiped++;
+            }
+          }
+        }
+        await prefs.setString('build_id', _buildId);
+        debugPrint('[peat] new build $_buildId — wiped $wiped stale store(s)');
+        // Fresh slate: drop in-memory tallies that would otherwise show stale.
+        _crdtTotal = 0;
+        _myLiters = 0;
+      }
       final storagePath = '${dir.path}/peat-$installId';
       final node = PeatFlutterNode.create(NodeConfig(
         appId: 'peat-flutter-example',
@@ -306,10 +387,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       }
 
       _sessionStartMs = DateTime.now().millisecondsSinceEpoch;
-      // Key the counter slot on the unique node ID so two iOS devices
-      // with the same hostname don't collide in the store.
-      _myCounterDocKey = 'counter-${node.nodeId.substring(0, 16)}';
-      // On connect: flush offline edits + read peer contributions.
+      // Seed the displayed total from the (re-synced) shared CRDT counter.
       _refreshCounter(node);
       _counterTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
         if (!mounted || _node == null) return;
@@ -338,6 +416,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       _flushMyCounter(node);
 
       var _heartbeatTick = 0;
+      var _catchupRotor = 0; // round-robins catch-up broadcasts, one per beat
       _peerTimer = Timer.periodic(const Duration(seconds: 2), (_) {
         if (!mounted || _node == null) return;
         // Re-publish self every 2 min to keep heartbeat fresh for peers.
@@ -350,76 +429,109 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
           // worst-case convergence at one beat. Traffic stays modest (a few
           // small frames/node) and ingestion is idempotent + echo-suppressed.
           _heartbeatTick = 0;
+          // Keep presence fresh (change-detected: only emits a CRDT frame when
+          // identity/caps actually change, so it's cheap on a steady state).
           _publishSelf(_node!);
-          // Re-broadcast owned shared state every beat so a peer that was
-          // OFFLINE and reconnects converges to current within ~20s — without
-          // depending on the BLE peer-count rising edge (BLE disconnect
-          // detection lags, so the still-online node may never see a 0→1 edge
-          // to trigger a one-shot re-push). The fan-out is otherwise
-          // change-driven; this is the steady re-advertise that makes
-          // comms-recovery / convergence-on-reconnect reliable. Re-publishing
-          // an unchanged CRDT doc is idempotent on the receiver.
-          _flushMyCounter(_node!);
-          // Only the node that SET the mission re-broadcasts it. If followers
-          // also re-publish the shared `objective` doc, the doc gets constant
-          // concurrent writes from every node, which the authoritative setter
-          // (the leader) reads back and fights with its local value — the
-          // "flashing mission" on the leader. A reconnecting peer still gets
-          // the mission from the setter's steady re-advertise.
-          if (_missionDays > 0 && _missionSetBy == _callsign) {
-            _republishMission(_node!);
+          // The SMALL, time-critical docs re-broadcast EVERY beat (4s): a peer
+          // on a slightly lossier path needs frequent re-sends to collect all
+          // fragments of a multi-fragment doc (the counter is one fragment so it
+          // always lands; commands is 3+ fragments — at a 16s cadence a lossy
+          // peer like A1 could never accumulate a full set, which is exactly why
+          // it stopped seeing requests). The BULKY / slow-changing docs (nodes
+          // presence, mission, cell) round-robin every ~16s — they change rarely
+          // and also broadcast immediately on change, so the slow catch-up is
+          // fine and keeps the channel from saturating.
+          _flushMyCounter(_node!); // shared counter — small, every beat
+          _broadcastCrdt('commands', _node!.crdtKvSnapshot('commands')); // every beat
+          switch (_catchupRotor % 2) {
+            case 0:
+              _broadcastCrdt('nodes', _node!.crdtKvSnapshot('nodes'));
+              break;
+            case 1:
+              // Only the SETTER re-broadcasts the mission (avoid concurrent
+              // writes to the shared 'objective' that flash on the leader).
+              if (_missionDays > 0 && _missionSetBy == _callsign) {
+                _republishMission(_node!);
+              }
+              // Leader re-broadcasts the EXISTING committed cell (idempotent);
+              // it does NOT auto-change membership (curated via Reform/Add/Remove).
+              if (_myCapabilities.contains('leader') && _cellMembers.isNotEmpty) {
+                _republishCell();
+              }
+              break;
           }
-          if (_myCapabilities.contains('leader') && _roster.isNotEmpty) {
-            _formCell();
-          }
+          _catchupRotor++;
         }
         // Clean up ghost entries that may have synced in from the peer.
         _cleanGhostNodes(_node!);
-        // Refresh cell and command state.
+        // Connections source = UNION of the local connection-based store and the
+        // CRDT presence doc (which relays mesh-wide, so it carries the nodes the
+        // connection-based path misses — e.g. the iPad on the Androids). CRDT
+        // entries win per id (always named). Per-device: direct + multi-hop.
+        final crdtNodes = _crdtNodes(_node!);
+        final crdtIds = crdtNodes.map((n) => n.id).toSet();
+        final unionById = <String, NodeInfo>{};
+        for (final n in _node!.nodes) {
+          unionById[n.id] = n;
+        }
+        for (final n in crdtNodes) {
+          unionById[n.id] = n;
+        }
+        final unionNodes = unionById.values.toList();
+        // Refresh cell + command state.
         try {
-          final cells = _node!.cells;
-          final cmds = _node!.commands;
+          final cmds = _readCommands(_node!); // from the CRDT KV doc, not lite
           for (final c in cmds) {
-            if (c.commandType == 'WATER_REQUEST' && _diagLoggedCmds.add(c.id)) {
-              debugPrint('[peat] WATER_REQUEST ${c.id} '
-                  'originator=${c.originator} rawParams=${c.parameters}');
+            // Requestor receives its resupply: when MY request is fulfilled,
+            // credit MY holdings entry +qty once (the transfer-in). It's a CRDT
+            // put (persists + syncs); the leader debited its own entry -qty, so
+            // the total (sum) is unchanged. Guard on session start so a COMPLETED
+            // request already in the doc at launch isn't re-claimed on restart
+            // (the holdings doc already reflects it).
+            if (c.commandType == 'WATER_REQUEST' &&
+                c.status == CommandStatus.completed &&
+                c.originator == _nodeId &&
+                c.createdAt >= _sessionStartMs &&
+                _claimedReqs.add(c.id)) {
+              final qty = _parseParams(c.parameters)['quantity'] as int? ?? 0;
+              if (qty > 0) _adjustCounter(_node, qty);
             }
           }
+          // Cell membership comes from the SYNCED cell doc's `members` list,
+          // read as generic JSON (the typed `cells` accessor doesn't carry it).
+          final cellFields = _docFields(_node!.getRaw('cells', _cellDocId));
+          // node id -> callsign, for resolving the roster + available nodes.
+          // Skip incomplete/ghost node docs (empty name or name == id).
+          final names = <String, String>{
+            for (final n in unionNodes)
+              if (n.name.isNotEmpty && n.name != n.id) n.id: n.name,
+          };
+          // Membership is keyed by CALLSIGN. Tolerate a LEGACY cell doc that
+          // still lists node ids (pre-migration): map self's id and any known
+          // peer id to its callsign. Drop any member still left as an
+          // unresolved node-id-shaped string — a dead identity from reset churn
+          // whose self-doc is gone — so it can't clutter membership or the
+          // counter. Once the leader re-advertises (_republishCell) the doc is
+          // rewritten in clean callsign form.
+          final members = ((cellFields?['members'] as List?) ?? const [])
+              .map((e) => e.toString())
+              .map((m) => m == _nodeId ? _callsign : (names[m] ?? m))
+              .where((m) => !_looksLikeNodeId(m))
+              .toSet();
+          final cells = _node!.cells;
           if (mounted) setState(() {
             _activeCell = cells.isNotEmpty ? cells.first : null;
             _commands = cmds;
+            _cellMembers
+              ..clear()
+              ..addAll(members);
+            _nodeNames
+              ..clear()
+              ..addAll(names);
           });
-          // Leader: auto-reform the cell when ROSTER membership changes — not
-          // the iroh `_peers` set (empty on Android), which is why the cell
-          // never grew to include the joining peer. Re-forms only on change,
-          // so no churn; once the peer appears in the roster the cell becomes
-          // a 2-member cell and re-publishes.
-          if (_myCapabilities.contains('leader') &&
-              cells.isNotEmpty &&
-              _roster.isNotEmpty &&
-              _nodeId != null) {
-            final currentMembers = _roster.map((n) => n.id).toSet();
-            if (currentMembers != _lastCellPeers) {
-              _lastCellPeers = currentMembers;
-              _formCell();
-            }
-          }
-          // Auto-claim fulfilled resupply requests addressed to this node.
-          // Guard: only claim commands issued IN THIS SESSION to prevent
-          // re-claiming old commands on restart (which would double-count).
-          for (final cmd in cmds) {
-            if (cmd.status == CommandStatus.completed &&
-                cmd.commandType == 'WATER_REQUEST' &&
-                cmd.createdAt >= _sessionStartMs &&
-                !_claimedCommandIds.contains(cmd.id)) {
-              final params = _parseParams(cmd.parameters);
-              if (params['from'] == _callsign) {
-                final qty = params['quantity'] as int? ?? 0;
-                _claimedCommandIds.add(cmd.id);
-                _adjustCounter(_node, qty); // atomic: receive all at once
-              }
-            }
-          }
+          // (Removed the requester-side auto-claim: the fulfiller now delivers
+          // the +qty directly into the shared CRDT pool at fulfill time, which
+          // propagates to every node. Claiming here too would double-count.)
         } catch (_) {}
 
         final seen = <String>{};
@@ -434,17 +546,22 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
             _bleChannel.invokeMethod<int>('blePeerCount').then((c) {
               if (mounted && c != null && c != _blePeerCount) {
                 final rising = _blePeerCount == 0 && c > 0;
+                final grew = c > _blePeerCount; // any new peer (incl. 3rd node)
                 setState(() => _blePeerCount = c);
-                // Rising edge (0 -> N): the BLE fan-out is change-driven and
-                // its startup Initial-snapshot races the peer connection, so a
-                // peer that joins after we published gets nothing until our
-                // next edit. Push current state across now: re-publish our
-                // capabilities (so we appear in the peer's roster immediately,
-                // not up to 120s later) and flush the counter (so its value
-                // converges without waiting for a fresh tap).
-                if (rising && _node != null) {
+                // A peer joined: the fan-out is change-driven and races the
+                // connection, so push current state across NOW so the new node
+                // appears in our Connections immediately. Fire on ANY increase
+                // (not just 0->N) so a 3rd node joining an existing pair still
+                // triggers the existing nodes to re-push.
+                if (grew && _node != null) {
                   _publishSelf(_node!);
+                  // Force a presence snapshot now (bypass _publishSelf's change-
+                  // detect gate) so the new peer learns our callsign at once.
+                  _broadcastCrdt('nodes', _node!.crdtKvSnapshot('nodes'));
                   _flushMyCounter(_node!);
+                }
+                // Heavier leader-owned re-publish only on the 0->N edge.
+                if (rising && _node != null) {
                   // Re-broadcast leader-owned shared state to the just-joined
                   // peer (fan-out is change-driven, so a mission/cell set
                   // before this peer connected would never reach it). Only the
@@ -452,10 +569,22 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
                   if (_missionDays > 0 && _missionSetBy == _callsign) {
                     _republishMission(_node!);
                   }
-                  if (_myCapabilities.contains('leader') && _roster.isNotEmpty) {
-                    _formCell();
+                  // Re-broadcast the EXISTING committed cell so the just-joined
+                  // peer converges — do NOT auto-form/mutate membership here.
+                  if (_myCapabilities.contains('leader') &&
+                      _cellMembers.isNotEmpty) {
+                    _republishCell();
                   }
                 }
+              }
+            }).catchError((_) {});
+            // Direct-BLE-peer node-ids → for the Connections direct/relayed mark.
+            _bleChannel.invokeMethod<List<dynamic>>('blePeerIds').then((ids) {
+              if (!mounted || ids == null) return;
+              final next = ids.map((e) => (e as num).toInt()).toSet();
+              if (next.length != _directPeerIds.length ||
+                  !next.containsAll(_directPeerIds)) {
+                setState(() => _directPeerIds = next);
               }
             }).catchError((_) {});
           }
@@ -482,14 +611,9 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
           // a node's heartbeat advances we stamp the LOCAL clock; a node is
           // "live" if we saw it advance within the window — skew-immune.
           final localNow = DateTime.now().millisecondsSinceEpoch;
-          for (final n in _node!.nodes) {
+          for (final n in unionNodes) {
             final prevHb = _nodeHbSeen[n.id];
             if (prevHb == null) {
-              // First sighting this session: record the heartbeat baseline but
-              // do NOT mark the node live. Otherwise every stale node doc
-              // already in the store (ghosts from prior sessions) would be
-              // stamped "seen now" and flood the roster with dead connections.
-              // Liveness is proven only by a subsequent heartbeat ADVANCE.
               _nodeHbSeen[n.id] = n.lastHeartbeat;
             } else if (n.lastHeartbeat > prevHb) {
               _nodeHbSeen[n.id] = n.lastHeartbeat;
@@ -497,11 +621,18 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
             }
           }
           final liveCutoff = localNow - const Duration(minutes: 3).inMilliseconds;
-          final allNodes = _node!.nodes
+          // Connections = nodes THIS device can reach (per-device; not expected
+          // to match across devices — that's the Cell's job). Qualifies if:
+          // self, a connected peer, recently-advanced presence, OR present in
+          // the CRDT presence doc (a relay-only / multi-hop peer). Named-only:
+          // drop nodeId-only stubs that made the row flap.
+          final allNodes = unionNodes
               .where((n) =>
                   n.id.length >= 16 &&
+                  (n.id == _nodeId || (n.name.isNotEmpty && n.name != n.id)) &&
                   (n.id == _nodeId ||
                       _peers.contains(n.id) ||
+                      crdtIds.contains(n.id) ||
                       (_nodeSeenLocal[n.id] ?? 0) >= liveCutoff))
               .toList();
           // Keep most-recent entry per callsign name (dedup reconnects with a
@@ -600,7 +731,8 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
         _changeSub = sub;
         _starting = false;
       });
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[startfail] $e\n$st');
       // Rust's create_node already retries redb open for up to 30s internally.
       // No Dart-level retry — that would create parallel competing runtimes.
       setState(() {
@@ -615,11 +747,14 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
 
   void _refreshMission(PeatFlutterNode node) {
     try {
-      // Mission is published through the node layer (wrapped as {fields:{..}});
-      // read via the shared extractor so days/by come from the right level
-      // (a top-level read returned null, so the mission never updated).
-      final f = _docFields(node.getRaw(_missionCollection, _missionDocId));
-      if (f == null) return;
+      // Mission rides the CRDT relay (same as counter/commands): the leader is
+      // the only writer of the 'objective' key, so there's no LWW conflict, and
+      // it converges mesh-wide (incl. relay-only followers) — unlike the old
+      // connection-based publishDoc path, which didn't reach every node.
+      final map = jsonDecode(node.crdtKvAll(_missionCollection))
+          as Map<String, dynamic>;
+      final f = map[_missionDocId];
+      if (f is! Map<String, dynamic>) return;
       final days = f['days'] as int? ?? 0;
       final by = f['by'] as String?;
       if (mounted && (days != _missionDays || by != _missionSetBy)) {
@@ -638,19 +773,12 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       'by': _callsign,
       'liters_per_person_per_day': _litersPerPersonPerDay,
     });
-    if (Platform.isAndroid) {
-      // Route through the node layer so it fans out over BLE (same as counter).
-      _bleChannel.invokeMethod('publishDoc',
-          {'collection': _missionCollection, 'json': json}).catchError((_) {
-        node.publishRaw(_missionCollection, json, docId: _missionDocId);
-        return null;
-      });
-    } else if (Platform.isIOS) {
-      try { node.publishDocument(_missionCollection, json); }
-      catch (_) { node.publishRaw(_missionCollection, json, docId: _missionDocId); }
-    } else {
-      node.publishRaw(_missionCollection, json, docId: _missionDocId);
-    }
+    // CRDT relay (fragmented 0xAF frame): converges to every node, including
+    // relay-only followers. Leader is the sole writer of 'objective'.
+    try {
+      final hex = node.crdtKvPut(_missionCollection, _missionDocId, json);
+      _broadcastCrdt(_missionCollection, hex);
+    } catch (_) {}
     setState(() {
       _missionDays = days;
       _missionSetBy = _callsign;
@@ -663,24 +791,35 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   /// receives it (the fan-out only emits on change).
   void _republishMission(PeatFlutterNode node) {
     if (_missionDays <= 0) return;
-    final json = jsonEncode({
-      'id': _missionDocId,
-      'days': _missionDays,
-      'by': _missionSetBy ?? _callsign,
-      'liters_per_person_per_day': _litersPerPersonPerDay,
-    });
-    if (Platform.isAndroid) {
-      _bleChannel.invokeMethod('publishDoc',
-          {'collection': _missionCollection, 'json': json}).catchError((_) {
-        node.publishRaw(_missionCollection, json, docId: _missionDocId);
-        return null;
-      });
-    } else if (Platform.isIOS) {
-      try { node.publishDocument(_missionCollection, json); }
-      catch (_) { node.publishRaw(_missionCollection, json, docId: _missionDocId); }
-    } else {
-      node.publishRaw(_missionCollection, json, docId: _missionDocId);
+    // Idempotent catch-up re-broadcast of the current mission CRDT snapshot so
+    // a peer that joined after it was set still converges.
+    try {
+      _broadcastCrdt(_missionCollection, node.crdtKvSnapshot(_missionCollection));
+    } catch (_) {}
+  }
+
+  // Deterministic NATO callsign from the device's stable hardware ID (Android
+  // ANDROID_ID / iOS identifierForVendor), so each physical device keeps one
+  // identity across reinstalls/resets. Returns null if the ID is unavailable
+  // (caller keeps the provisional random callsign).
+  Future<String?> _deviceCallsign() async {
+    String id = '';
+    try {
+      final info = DeviceInfoPlugin();
+      if (Platform.isAndroid) {
+        id = (await info.androidInfo).id;
+      } else if (Platform.isIOS) {
+        id = (await info.iosInfo).identifierForVendor ?? '';
+      }
+    } catch (_) {}
+    if (id.isEmpty) return null;
+    var h = 0;
+    for (final c in id.codeUnits) {
+      h = (h * 31 + c) & 0x7fffffff;
     }
+    final name = _callsignPool[h % _callsignPool.length];
+    final suffix = 10 + (h ~/ _callsignPool.length) % 90;
+    return '$name-$suffix';
   }
 
   String get _callsign => _callsignCtrl.text.trim().isEmpty
@@ -705,12 +844,19 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
           }
         }
       }
-      // Reset in-memory state
+      // NOTE: intentionally KEEP the persisted install id (stable node id).
+      // Minting a new id on every reset orphaned the device's prior counter doc
+      // under its callsign, accumulating "zombie" docs across resets that
+      // different peers deduped inconsistently -> totals never reconverged.
+      // Reset is a clean LOCAL wipe; it does not try to drop this device's share
+      // from the mesh total (that needs a tombstone the lite transport lacks).
+      // Reset in-memory state. The Automerge counter doc (water.automerge)
+      // lives under the deleted store dir, so it's wiped too; on restart the
+      // node re-merges peers' snapshots and reconverges to the shared total.
       setState(() {
-        _myInc = 0;
-        _myDec = 0;
+        _crdtTotal = 0;
+        _myLiters = 0;
         _counterDirty = false;
-        _peerContributions.clear();
         _peerNames.clear();
         _changeLog.clear();
         _contentHashes.clear();
@@ -774,6 +920,32 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     } else {
       node.publishSelf(nodeId: id, name: _callsign, capabilities: _myCapabilities);
     }
+    // Presence over the CRDT relay: write self into the `nodes` doc (callsign-
+    // keyed) and broadcast over the fragmented 0xAF frame — the transport that
+    // actually reaches every node both ways. Re-PUT only on an identity/caps
+    // change (a PUT appends history); the throttled heartbeat re-broadcasts the
+    // unchanged snapshot, which doesn't grow the doc.
+    final stableJson = jsonEncode({
+      'id': id,
+      'node_type': 'peat-flutter',
+      'name': _callsign,
+      'status': 'ACTIVE',
+      'readiness': 1.0,
+      'capabilities': _myCapabilities,
+      // Our directly-connected BLE peer short-ids, so peers can resolve the
+      // link symmetrically (a direct link the other side sees but we don't).
+      'direct_peers': (_directPeerIds.toList()..sort()),
+      // Wi-Fi-Direct capable? (Android with Wi-Fi on). iOS is BLE-only, so the
+      // Wi-Fi badge only shows between nodes that both advertise this.
+      'wifi': Platform.isAndroid && _wifiDirectOn,
+    });
+    if (stableJson != _lastSelfNodeJson) {
+      _lastSelfNodeJson = stableJson;
+      try {
+        final hex = node.crdtKvPut('nodes', _callsign, stableJson);
+        _broadcastCrdt('nodes', hex);
+      } catch (_) {}
+    }
     // Persist callsign so it survives app restarts
     SharedPreferences.getInstance()
         .then((p) => p.setString('callsign', _callsign));
@@ -810,148 +982,253 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     return (fields is Map<String, dynamic>) ? fields : map;
   }
 
-  void _refreshCounter(PeatFlutterNode node) {
-    // Flush local dirty edits first (offline changes take precedence).
-    if (_counterDirty) {
-      _flushMyCounter(node);
-    }
-    // Read all counter docs to collect peer contributions.
-    final docs = node.listDocuments(_counterCollection);
-    // Only sum counters for nodes seen ALIVE this session (heartbeat observed).
-    // Orphan counter docs left in the store by departed/old nodes — e.g. an
-    // app reinstall mints a new node id + counter doc each time — would
-    // otherwise inflate the PN-counter total on a node that accumulated them.
-    // `_nodeSeenLocal` is per-session + only set on a heartbeat advance, so a
-    // prior-session ghost has no entry and is excluded; a flapping live peer
-    // keeps its last contribution.
-    final liveSuffixes = <String>{
-      for (final id in _nodeSeenLocal.keys)
-        if (id.length >= 16) id.substring(0, 16) else id,
-    };
-    final updated = <String, int>{};
-    for (final docId in docs) {
-      if (!docId.startsWith('counter-')) continue;
-      if (docId == _myCounterDoc) {
-        // Restore my own state if we don't have it yet.
-        if (_myInc == 0 && _myDec == 0 && !_counterDirty) {
-          try {
-            final f = _docFields(node.getRaw(_counterCollection, docId));
-            if (f != null && mounted) setState(() {
-              _myInc = f['inc'] as int? ?? 0;
-              _myDec = f['dec'] as int? ?? 0;
-            });
-          } catch (_) {}
-        }
-        continue;
+  // A peat node id is a long hex string; a callsign is short human text. Used
+  // to reject dead node-id identities that leaked into cell membership.
+  static final _hexRe = RegExp(r'^[0-9a-fA-F]+$');
+  static bool _looksLikeNodeId(String s) => s.length >= 32 && _hexRe.hasMatch(s);
+
+  // Read the per-node holdings CRDT doc ({callsign: liters}). Returns this
+  // node's own entry ("yours") and the SUM of all entries ("total") — both from
+  // synced CRDT state, so they survive restarts and converge mesh-wide.
+  ({int mine, int total}) _readHoldings(PeatFlutterNode node) {
+    int mine = 0, total = 0;
+    try {
+      final map = jsonDecode(node.crdtKvAll(_holdingsCollection))
+          as Map<String, dynamic>;
+      for (final e in map.entries) {
+        final v = (e.value is num)
+            ? (e.value as num).toInt()
+            : (int.tryParse('${e.value}') ?? 0);
+        total += v;
+        if (e.key == _callsign) mine = v;
       }
-      // Skip orphan/ghost counters whose node hasn't heartbeated this session.
-      final suffix = docId.substring('counter-'.length);
-      if (!liveSuffixes.contains(suffix)) continue;
-      try {
-        final f = _docFields(node.getRaw(_counterCollection, docId));
-        if (f != null) {
-          updated[docId] = (f['inc'] as int? ?? 0) - (f['dec'] as int? ?? 0);
-          final by = f['by'] as String?;
-          if (by != null) _peerNames[docId] = by;
-        }
-      } catch (_) {}
-    }
-    if (mounted && updated != _peerContributions) {
-      setState(() => _peerContributions
-        ..clear()
-        ..addAll(updated));
+    } catch (_) {}
+    return (mine: mine, total: total);
+  }
+
+  void _refreshCounter(PeatFlutterNode node) {
+    // Inbound CRDT frames merge on receipt; here we surface yours + total from
+    // the holdings doc. When all nodes' logs settle on the same total, the mesh
+    // has converged.
+    final h = _readHoldings(node);
+    if (h.mine != _myLiters || h.total != _crdtTotal) {
+      if (mounted) setState(() {
+        _myLiters = h.mine;
+        _crdtTotal = h.total;
+      });
     }
   }
 
-  void _flushMyCounter(PeatFlutterNode node) {
-    // Publish through the node layer so the counter reaches the ADR-059 fan-out
-    // and syncs over BLE — put_document/publishRaw write straight to
-    // storage_backend and bypass the fan-out. Carry the doc id in "id".
-    final json = jsonEncode(
-        {'id': _myCounterDoc, 'inc': _myInc, 'dec': _myDec, 'by': _callsign});
-    if (Platform.isAndroid) {
-      _bleChannel.invokeMethod('publishDoc',
-          {'collection': _counterCollection, 'json': json}).catchError((_) {
-        node.publishRaw(_counterCollection, json, docId: _myCounterDoc);
-        return null;
-      });
-    } else if (Platform.isIOS) {
-      try {
-        node.publishDocument(_counterCollection, json);
-      } catch (_) {
-        node.publishRaw(_counterCollection, json, docId: _myCounterDoc);
-      }
-    } else {
-      node.publishRaw(_counterCollection, json, docId: _myCounterDoc);
+  // Catch-up re-broadcast of the holdings CRDT doc (small; idempotent merge).
+  void _flushMyCounter(PeatFlutterNode node) =>
+      _broadcastCrdt(_holdingsCollection, node.crdtKvSnapshot(_holdingsCollection));
+
+  static const int _kCrdtTransport = 2; // matches BleBridge.kt TRANSPORT_CRDT
+
+  // Broadcast an Automerge doc's save() bytes (hex) for [collection] as a
+  // dedicated CRDT frame over BLE — NO lite-bridge. The bytes ride a
+  // [0xAF][2=crdt][collLen][collection][hex] envelope; peat-btle's 0xAF opaque
+  // relay carries it multi-hop, and peers MERGE it (commutative/idempotent).
+  // Wire framing (transport=2): [0xAF][2][collLen][collection]
+  //   [msgId:u32 BE][fragIdx:u8][fragCount:u8][chunk...]
+  // The hex payload is split into fragments each <= the BLE wire ceiling so a
+  // large Automerge doc (which exceeds ~512B once hex-doubled) survives the
+  // radio instead of being silently truncated. msgId is content-addressed (a
+  // hash of the whole payload) so every re-broadcast of the SAME doc yields
+  // identical, interchangeable fragments — re-sends and cross-sender duplicates
+  // reassemble harmlessly, and a dropped fragment self-heals on the next
+  // heartbeat re-broadcast. The receiver reassembles, then merges (idempotent).
+  static const int _kCrdtHdr = 6; // msgId(4) + fragIdx(1) + fragCount(1)
+  // Max chunk so 3(env) + collLen(<=8) + 6(frag hdr) + chunk <= 512. 480 leaves margin.
+  static const int _kCrdtChunk = 480;
+
+  void _broadcastCrdt(String collection, String hex) {
+    final coll = utf8.encode(collection);
+    final payload = utf8.encode(hex); // hex string as bytes
+    // Content-addressed message id (FNV-1a 32-bit over the payload).
+    int msgId = 0x811c9dc5;
+    for (final b in payload) {
+      msgId = ((msgId ^ b) * 0x01000193) & 0xFFFFFFFF;
     }
-    setState(() {
-      _counterDirty = false;
-      _counterLastBy = _callsign;
-    });
+    final int fragCount =
+        payload.isEmpty ? 1 : ((payload.length + _kCrdtChunk - 1) ~/ _kCrdtChunk);
+    final envelopes = <Uint8List>[];
+    for (int idx = 0; idx < fragCount; idx++) {
+      final int start = idx * _kCrdtChunk;
+      final int end =
+          (start + _kCrdtChunk < payload.length) ? start + _kCrdtChunk : payload.length;
+      final int chunkLen = end - start;
+      final env = Uint8List(3 + coll.length + _kCrdtHdr + chunkLen);
+      env[0] = 0xAF;
+      env[1] = _kCrdtTransport;
+      env[2] = coll.length;
+      env.setRange(3, 3 + coll.length, coll);
+      final int h = 3 + coll.length;
+      env[h] = (msgId >> 24) & 0xFF;
+      env[h + 1] = (msgId >> 16) & 0xFF;
+      env[h + 2] = (msgId >> 8) & 0xFF;
+      env[h + 3] = msgId & 0xFF;
+      env[h + 4] = idx;
+      env[h + 5] = fragCount;
+      env.setRange(h + _kCrdtHdr, env.length, payload.sublist(start, end));
+      envelopes.add(env);
+    }
+    _sendCrdtFrames(envelopes); // fire-and-forget (paces iOS internally)
+  }
+
+  // Send the fragment envelopes over the native BLE bridge. On iOS we AWAIT
+  // each bleTx and space fragments apart: CoreBluetooth silently drops rapid
+  // back-to-back broadcasts, so a multi-fragment frame (nodes/commands) loses
+  // pieces and never reassembles on peers — while a single-fragment frame
+  // (holdings) always lands. Pacing makes every fragment go out. Android's
+  // bridge queues fine, so it fires them without spacing.
+  Future<void> _sendCrdtFrames(List<Uint8List> envelopes) async {
+    for (int i = 0; i < envelopes.length; i++) {
+      if (Platform.isAndroid) {
+        _bleChannel
+            .invokeMethod('crdtTx', {'bytes': envelopes[i]}).catchError((_) => null);
+      } else {
+        await _bleChannel
+            .invokeMethod('bleTx', envelopes[i])
+            .catchError((_) => null);
+        if (envelopes.length > 1 && i < envelopes.length - 1) {
+          await Future.delayed(const Duration(milliseconds: 60));
+        }
+      }
+    }
+  }
+
+  // Reassemble a CRDT fragment (iOS receive). Returns the full hex string once
+  // every fragment of a message has arrived, else null. Buffers partial sets
+  // keyed by "collection:msgId"; a re-sent complete set just overwrites.
+  String? _crdtReassemble(
+      String coll, int msgId, int fragIdx, int fragCount, Uint8List chunk) {
+    if (fragCount <= 1) return utf8.decode(chunk); // single fragment, fast path
+    final key = '$coll:$msgId';
+    final parts = _crdtReasm.putIfAbsent(key, () => {});
+    parts[fragIdx] = chunk;
+    if (parts.length < fragCount) return null;
+    final buf = BytesBuilder();
+    for (int i = 0; i < fragCount; i++) {
+      final p = parts[i];
+      if (p == null) return null; // gap — wait for the missing fragment
+      buf.add(p);
+    }
+    _crdtReasm.remove(key);
+    // Bound the buffer: drop any stale partials if it grows unexpectedly.
+    if (_crdtReasm.length > 32) _crdtReasm.clear();
+    return utf8.decode(buf.toBytes());
   }
 
   void _writeCounter(PeatFlutterNode? node, bool increment) =>
       _adjustCounter(node, increment ? 1 : -1);
 
-  /// Apply [delta] in a single atomic write — avoids multi-write races
-  /// when resupply fulfillment needs to move N liters at once.
+  /// Apply [delta] liters to THIS node's holdings entry in the CRDT doc and
+  /// broadcast it. "yours" = my entry, "total" = sum of all entries — so a +/-
+  /// here moves the total by delta, and a transfer (fulfill) is +qty on the
+  /// requestor's entry / -qty on the leader's, leaving the sum unchanged.
   void _adjustCounter(PeatFlutterNode? node, int delta) {
-    setState(() {
-      if (delta > 0) _myInc += delta; else _myDec += -delta;
-      _counterLastBy = _callsign;
-    });
-    if (node != null) {
-      _flushMyCounter(node);
-    } else {
-      setState(() => _counterDirty = true);
+    if (node == null) return;
+    final h = _readHoldings(node);
+    final newMine = h.mine + delta;
+    final hex =
+        node.crdtKvPut(_holdingsCollection, _callsign, newMine.toString());
+    _broadcastCrdt(_holdingsCollection, hex);
+    if (mounted) {
+      setState(() {
+        _myLiters = newMine;
+        _crdtTotal = h.total - h.mine + newMine; // total moves by delta
+        _counterLastBy = _callsign;
+      });
     }
   }
 
   // ── Cell card ────────────────────────────────────────────────────────
 
+  // "Reform" / "Form Cell": commit the CURRENT roster as the explicit cell
+  // membership. After this the cell is curated — Add/Remove edit it in place;
+  // it no longer auto-tracks the roster.
   void _formCell() {
+    final members = _roster.map((n) => n.name).toSet();
+    _publishCell(members);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Alpha Cell reformed — ${members.length} member'
+            '${members.length == 1 ? '' : 's'}: ${members.join(', ')}'),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ));
+    }
+  }
+
+  // "Add": include a node (by callsign) in the committed cell.
+  void _addToCell(String callsign) => _publishCell({..._cellMembers, callsign});
+
+  // "Remove": drop a node (by callsign) from the committed cell.
+  void _removeFromCell(String callsign) =>
+      _publishCell({..._cellMembers}..remove(callsign));
+
+  // Steady re-advertise of the EXISTING membership (idempotent — no change).
+  // Lets a reconnecting peer converge without the leader mutating the cell.
+  void _republishCell() {
+    if (_cellMembers.isEmpty) return;
+    _publishCell(Set.of(_cellMembers));
+  }
+
+  // Publish the cell doc with an EXPLICIT member set. The `members` list is the
+  // source of truth for membership (every node reads it back from the synced
+  // doc); node_count / capabilities / leader are derived from it. A member that
+  // isn't currently in the roster (offline peer) still counts toward membership.
+  void _publishCell(Set<String> memberCallsigns) {
     final node = _node;
-    if (node == null) return;
-    // Members = the live roster (self + BLE-reachable peers). The old code
-    // used {_nodeId, ..._peers}, but _peers is the iroh connected-set, which
-    // is empty on Android (iroh can't connect) — so the cell only ever held
-    // self and the peer never joined. The roster is the real membership.
-    final activeNodes = _roster.toList();
-    if (activeNodes.isEmpty) return;
-    final allCaps = activeNodes
-        .expand((n) => n.capabilities)
-        .toSet()
+    if (node == null || memberCallsigns.isEmpty) return;
+    final byCallsign = {for (final n in _roster) n.name: n};
+    final known = memberCallsigns
+        .map((cs) => byCallsign[cs])
+        .whereType<NodeInfo>()
         .toList();
-    final leader = activeNodes
-        .firstWhere((n) => n.capabilities.contains('leader'),
-            orElse: () => activeNodes.first)
-        .id;
+    final allCaps = known.expand((n) => n.capabilities).toSet().toList();
+    // Prefer a member advertising 'leader'; fall back to this node (the curator).
+    var leaderId = _nodeId ?? '';
+    for (final n in known) {
+      if (n.capabilities.contains('leader')) { leaderId = n.id; break; }
+    }
+    final active = memberCallsigns.length > 1;
     final cell = CellInfo(
-      id: 'alpha-cell',
+      id: _cellDocId,
       name: 'Alpha Cell',
-      status: activeNodes.length > 1 ? CellStatus.active : CellStatus.forming,
-      nodeCount: activeNodes.length,
+      status: active ? CellStatus.active : CellStatus.forming,
+      nodeCount: memberCallsigns.length,
       centerLat: 0,
       centerLon: 0,
       capabilities: allCaps,
       formationId: null,
-      leaderId: leader,
+      leaderId: leaderId,
       lastUpdate: DateTime.now().millisecondsSinceEpoch,
       scenarioCommand: null,
     );
+    // Mirror locally right away so the leader's UI updates without waiting for
+    // the doc to round-trip back through the refresh read.
+    if (mounted) setState(() {
+      _cellMembers
+        ..clear()
+        ..addAll(memberCallsigns);
+    });
     // Publish through the node layer (wrapped Document) so the cell reaches the
-    // BLE fan-out and the other device actually receives it. putCell writes a
-    // flat shape straight to storage that doesn't sync.
+    // BLE/Wi-Fi fan-out and the other device actually receives it. putCell
+    // writes a flat shape straight to storage that doesn't sync (and can't
+    // carry `members`) — it's only the desktop/error fallback.
     final cellJson = jsonEncode({
       'id': cell.id,
       'name': cell.name,
-      'status': activeNodes.length > 1 ? 'ACTIVE' : 'FORMING',
+      'status': active ? 'ACTIVE' : 'FORMING',
       'node_count': cell.nodeCount,
       'center_lat': 0,
       'center_lon': 0,
       'capabilities': allCaps,
+      'members': memberCallsigns.toList(),
       'formation_id': null,
-      'leader_id': leader,
+      'leader_id': leaderId,
       'last_update': cell.lastUpdate,
       'scenario_command': null,
     });
@@ -1035,6 +1312,67 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
                               color: theme.colorScheme.onPrimaryContainer)),
                 )).toList(),
               ),
+              // Leader-only: curate membership explicitly. The cell does NOT
+              // auto-follow the roster — Remove drops a node, Add pulls one in
+              // from Available Nodes, Reform re-commits the whole roster.
+              if (_myCapabilities.contains('leader')) ...[
+                const SizedBox(height: 8),
+                Text('Members (${_cellMembers.length})',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.outline)),
+                ..._cellMembers.map((callsign) {
+                  final isMe = callsign == _callsign;
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Row(children: [
+                      const Icon(Icons.check_circle,
+                          size: 14, color: Colors.green),
+                      const SizedBox(width: 6),
+                      Expanded(child: Text(callsign,
+                          style: theme.textTheme.bodySmall)),
+                      if (!isMe)
+                        InkWell(
+                          onTap: () => _removeFromCell(callsign),
+                          child: Icon(Icons.remove_circle_outline,
+                              size: 18, color: theme.colorScheme.error),
+                        ),
+                    ]),
+                  );
+                }),
+                Builder(builder: (_) {
+                  // Available = roster nodes (by callsign) not yet committed.
+                  final available = _roster
+                      .where((n) => !_cellMembers.contains(n.name))
+                      .toList();
+                  if (available.isEmpty) return const SizedBox.shrink();
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 6),
+                      Text('Available Nodes (${available.length})',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: theme.colorScheme.outline)),
+                      ...available.map((n) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Row(children: [
+                          Icon(Icons.radio_button_unchecked,
+                              size: 14, color: theme.colorScheme.outline),
+                          const SizedBox(width: 6),
+                          Expanded(child: Text(n.name,
+                              style: theme.textTheme.bodySmall)),
+                          InkWell(
+                            onTap: () => _addToCell(n.name),
+                            child: Icon(Icons.add_circle_outline,
+                                size: 18, color: theme.colorScheme.primary),
+                          ),
+                        ]),
+                      )),
+                    ],
+                  );
+                }),
+              ],
             ] else if (!_myCapabilities.contains('leader'))
               Text('Awaiting cell formation from leader.',
                   style: theme.textTheme.bodySmall
@@ -1052,29 +1390,115 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   /// flat `putCommand` write doesn't reach the fan-out — route through the node
   /// layer (wrapped Document) on Android. `parameters` is sent as a nested
   /// object (not a quoted string) so the Rust side reconstructs it verbatim.
+  // Commands are a generic CRDT KV doc ("commands"), keyed by command id —
+  // Automerge-over-BLE, mesh-wide convergence, no lite-bridge. Add = put key;
+  // fulfill = put same key with status:completed (LWW per key).
   void _publishCommand(PeatFlutterNode node, CommandInfo cmd) {
-    final json = jsonEncode({
-      'id': cmd.id,
-      'command_type': cmd.commandType,
-      'target_id': cmd.targetId,
-      'parameters': jsonDecode(cmd.parameters),
-      'priority': cmd.priority,
-      'status': cmd.status.name.toUpperCase(),
-      'originator': cmd.originator,
-      'created_at': cmd.createdAt,
-      'last_update': cmd.lastUpdate,
-    });
-    if (Platform.isAndroid) {
-      _bleChannel.invokeMethod('publishDoc',
-          {'collection': 'commands', 'json': json}).catchError((_) {
-        node.putCommand(cmd);
-        return null;
+    final json = _cmdToJson(cmd);
+    final hex = node.crdtKvPut('commands', cmd.id, json);
+    _broadcastCrdt('commands', hex);
+    // Low-latency delivery for this user action: the single paced send can lose
+    // a fragment, and waiting for the 4s steady catch-up feels sluggish. Re-send
+    // the commands snapshot a few times over the next ~2s so every fragment
+    // lands quickly (idempotent merge — extra sends are harmless).
+    for (final ms in const [350, 900, 1800]) {
+      Future.delayed(Duration(milliseconds: ms), () {
+        if (mounted && _node != null) {
+          _broadcastCrdt('commands', _node!.crdtKvSnapshot('commands'));
+        }
       });
-    } else if (Platform.isIOS) {
-      try { node.publishDocument('commands', json); } catch (_) { node.putCommand(cmd); }
-    } else {
-      node.putCommand(cmd);
     }
+  }
+
+  static String _cmdToJson(CommandInfo cmd) => jsonEncode({
+        'id': cmd.id,
+        'command_type': cmd.commandType,
+        'target_id': cmd.targetId,
+        'parameters': cmd.parameters, // kept as a string; _parseParams handles it
+        'priority': cmd.priority,
+        'status': cmd.status.name,
+        'originator': cmd.originator,
+        'created_at': cmd.createdAt,
+        'last_update': cmd.lastUpdate,
+      });
+
+  // Parse the "nodes" CRDT KV doc ({callsign: {node...}}) into NodeInfo list —
+  // the reachability source for Connections. Relays mesh-wide over the
+  // fragmented 0xAF frame (so a node reachable only via a relay appears here),
+  // callsign-keyed and always named (kills the nodeId<->callsign flapping the
+  // connection-based store caused with half-synced, name-less stubs).
+  List<NodeInfo> _crdtNodes(PeatFlutterNode node) {
+    final out = <NodeInfo>[];
+    final advertised = <int, Set<int>>{};
+    final wifiPeers = <int>{};
+    try {
+      final map = jsonDecode(node.crdtKvAll('nodes')) as Map<String, dynamic>;
+      for (final v in map.values) {
+        if (v is! Map<String, dynamic>) continue;
+        final id = v['id'] as String? ?? '';
+        final name = v['name'] as String? ?? '';
+        if (id.length < 16 || name.isEmpty || name == id) continue;
+        // Record the direct-peer set this node advertises (for symmetric
+        // direct-link detection — see _advertisedDirect).
+        final short = int.tryParse(id.substring(0, 8), radix: 16);
+        if (short != null) {
+          advertised[short] = ((v['direct_peers'] as List?) ?? const [])
+              .map((e) => (e as num).toInt())
+              .toSet();
+          if (v['wifi'] == true) wifiPeers.add(short);
+        }
+        final caps = (v['capabilities'] as List?)
+                ?.map((e) => e.toString())
+                .toList() ??
+            const <String>[];
+        out.add(NodeInfo(
+          id: id,
+          nodeType: v['node_type'] as String? ?? 'peat-flutter',
+          name: name,
+          status: NodeStatus.active,
+          lat: 0,
+          lon: 0,
+          hae: null,
+          readiness: (v['readiness'] as num?)?.toDouble() ?? 1.0,
+          capabilities: caps,
+          cellId: null,
+          batteryPercent: null,
+          heartRate: null,
+          lastHeartbeat: (v['last_heartbeat'] as num?)?.toInt() ?? 0,
+        ));
+      }
+    } catch (_) {}
+    _advertisedDirect = advertised;
+    _wifiPeers = wifiPeers;
+    return out;
+  }
+
+  // Parse the "commands" CRDT KV doc ({id: {cmd...}}) into CommandInfo list.
+  List<CommandInfo> _readCommands(PeatFlutterNode node) {
+    final out = <CommandInfo>[];
+    try {
+      final map = jsonDecode(node.crdtKvAll('commands')) as Map<String, dynamic>;
+      for (final v in map.values) {
+        if (v is! Map<String, dynamic>) continue;
+        final statusName = (v['status'] as String?) ?? 'pending';
+        final status = CommandStatus.values.firstWhere(
+          (s) => s.name == statusName,
+          orElse: () => CommandStatus.pending,
+        );
+        out.add(CommandInfo(
+          id: v['id'] as String? ?? '',
+          commandType: v['command_type'] as String? ?? '',
+          targetId: v['target_id'] as String? ?? '',
+          parameters: v['parameters'] as String? ?? '{}',
+          priority: v['priority'] as int? ?? 1,
+          status: status,
+          originator: v['originator'] as String? ?? '',
+          createdAt: v['created_at'] as int? ?? 0,
+          lastUpdate: v['last_update'] as int? ?? 0,
+        ));
+      }
+    } catch (_) {}
+    return out;
   }
 
   void _issueWaterRequest(int quantity) {
@@ -1097,14 +1521,17 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   void _fulfillCommand(CommandInfo cmd) {
     final node = _node;
     if (node == null) return;
-    // Leader DECREMENTS their own supply (giving water away).
-    // The requester will auto-increment their slot when they see COMPLETED.
+    // Transfer model: fulfilling DISPENSES qty from the leader's own stock to
+    // the requestor. The leader debits its own holdings entry -qty HERE (via
+    // _adjustCounter, which writes the CRDT doc + broadcasts — NOT a local-only
+    // tally that gets overwritten on the next refresh); the requestor credits
+    // its own entry +qty when it sees this command go COMPLETED. Both touch the
+    // SAME holdings doc on different keys, so the sum (total) is unchanged.
     try {
-      final params = jsonDecode(cmd.parameters) as Map<String, dynamic>;
-      final qty = params['quantity'] as int? ?? 0;
-      _adjustCounter(node, -qty); // atomic: give all at once
+      final qty = _parseParams(cmd.parameters)['quantity'] as int? ?? 0;
+      if (qty > 0) _adjustCounter(node, -qty);
     } catch (_) {}
-    // Mark command as completed so the requester can claim it.
+    // Mark command as completed (for the requester's "fulfilled" UI).
     _publishCommand(node, CommandInfo(
       id: cmd.id,
       commandType: cmd.commandType,
@@ -1475,7 +1902,26 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
         final String coll = utf8.decode(event.sublist(3, 3 + collLen));
         final Uint8List frame = Uint8List.sublistView(event, 3 + collLen);
         try {
-          if (transport == 1) {
+          if (transport == _kCrdtTransport) {
+            // CRDT frame: [msgId:u32][fragIdx:u8][fragCount:u8][chunk]. Reassemble
+            // across fragments, then route by collection. "supply" -> counter;
+            // else -> KV. Both merges are idempotent/commutative.
+            if (frame.length < _kCrdtHdr) return;
+            final int msgId = (frame[0] << 24) |
+                (frame[1] << 16) |
+                (frame[2] << 8) |
+                frame[3];
+            final int fragIdx = frame[4];
+            final int fragCount = frame[5];
+            final Uint8List chunk = Uint8List.sublistView(frame, _kCrdtHdr);
+            final hex = _crdtReassemble(coll, msgId, fragIdx, fragCount, chunk);
+            if (hex == null) return; // incomplete — wait for more fragments
+            if (coll == _supplyDocId) {
+              node.crdtCounterMerge(hex);
+            } else {
+              node.crdtKvMerge(coll, hex);
+            }
+          } else if (transport == 1) {
             node.ingestInboundLiteFrame(coll, frame);
           } else {
             node.ingestInboundFrame(coll, frame);
@@ -1621,19 +2067,19 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       _peers = [];
       _syncStats = null;
       _counterLastBy = null;
-      _myCounterDocKey = '';
       _peerNames.clear();
       _missionDays = 0;
       _missionSetBy = null;
       _activeCell = null;
       _commands = [];
       _claimedCommandIds.clear();
-      _lastCellPeers = {};
+      _cellMembers.clear();
+      _nodeNames.clear();
       _roster = [];
       // _contentHashes persists across stop/start intentionally.
       _stopping = false;
-      // Keep _myInc/_myDec/_counterDirty/_peerContributions so offline
-      // edits and peer values persist across stop/start cycles.
+      // The shared total persists in the Automerge doc (water.automerge) and
+      // re-syncs on restart; _myLiters (local tally) persists in memory.
       _bleRunning = false;
       _bleFrameCount = 0;
     });
@@ -1874,7 +2320,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
                         Column(
                           children: [
                             Text(
-                              '${_myInc - _myDec} / $_counterValue',
+                              '$_myLiters / $_crdtTotal',
                               style: theme.textTheme.displaySmall
                                   ?.copyWith(fontWeight: FontWeight.bold),
                             ),
@@ -1892,13 +2338,24 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
                         ),
                       ],
                     ),
+                    // (Removed the "N/M members in sync" indicator — it measured
+                    // cell-member heartbeat presence, not counter convergence,
+                    // and was misleading now that the total is a true CRDT merge.
+                    // Per-node BLE connectivity is shown in the Node Roster.)
                   ],
                 ),
               ),
             ),
 
             // ---- mission objective ----
-            if (hasNode) ...[
+            // Shown once a Cell exists. The LEADER sees it after forming the
+            // cell (to set duration — the required-liters target depends on the
+            // cell's crew size). FOLLOWERS see it read-only once the leader has
+            // set a mission (so the synced objective is visible to everyone in
+            // the cell). The setting controls inside the card are leader-gated.
+            if (hasNode &&
+                _cellMembers.isNotEmpty &&
+                (_myCapabilities.contains('leader') || _missionDays > 0)) ...[
               const SizedBox(height: 12),
               _buildMissionCard(theme),
             ],
@@ -1924,50 +2381,67 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Node Roster (${_roster.length})',
+                    Text('Connections (${_roster.length})',
                           style: theme.textTheme.labelMedium
                               ?.copyWith(fontWeight: FontWeight.bold)),
                       const SizedBox(height: 4),
                       ..._roster.map((n) {
                         final isMe = n.id == _nodeId;
-                        // "Connected" = we've received this peer's heartbeat
-                        // recently (skew-immune local-receipt liveness), NOT the
-                        // iroh `_peers` set — iroh-over-WiFiDirect connects then
-                        // dies on Android, so it falsely showed a dead Wi-Fi link.
-                        final sinceSeen = DateTime.now().millisecondsSinceEpoch -
-                            (_nodeSeenLocal[n.id] ?? 0);
-                        final isConnected = isMe || sinceSeen < 25000;
-                        // Per-peer transport badges: show EVERY live carrier so
-                        // BLE + P2PWiFi appear together when both are up. These
-                        // are app-level carrier links (BLE mesh / Wi-Fi Direct
-                        // TCP tunnel); for the 2-node demo they're global, shown
-                        // against the live peer. iroh's _peers is intentionally
-                        // not used (dead on these phones).
+                        // Direct vs relayed: the BLE bridge reports the node-ids
+                        // (32-bit = first 8 hex of the full id) of peers we're
+                        // DIRECTLY connected to. A roster node not in that set is
+                        // reachable only through another node (multi-hop) — it
+                        // still synced here via the CRDT relay. Nothing is
+                        // "disconnected": everything listed IS reachable.
+                        int? shortId;
+                        try {
+                          shortId = int.parse(n.id.substring(0, 8), radix: 16);
+                        } catch (_) {}
+                        final myShort = _nodeId != null && _nodeId!.length >= 8
+                            ? int.tryParse(_nodeId!.substring(0, 8), radix: 16)
+                            : null;
+                        // Direct if: we're fully meshed (connected to at least as
+                        // many BLE peers as there are OTHER nodes — so every peer
+                        // must be a direct link), OR we positively identify the
+                        // link (our blePeerIds, or the peer advertises us — a BLE
+                        // link is bidirectional). The mesh-count check covers the
+                        // case where peat-btle reports a connection as nodeId=0 so
+                        // we can't match it per-peer, but we ARE linked to everyone.
+                        final otherCount = _roster.length - 1;
+                        final fullyMeshed =
+                            otherCount > 0 && _blePeerCount >= otherCount;
+                        final isDirect = !isMe &&
+                            (fullyMeshed ||
+                                (shortId != null &&
+                                    (_directPeerIds.contains(shortId) ||
+                                        (myShort != null &&
+                                            (_advertisedDirect[shortId]
+                                                    ?.contains(myShort) ??
+                                                false)))));
                         const bleBlue = Color(0xFF2196F3);
-                        final bleUp = !isMe && isConnected && _blePeerCount > 0;
-                        final wifiUp = !isMe && isConnected && _wifiTunnelPeers > 0;
                         final transports = <Widget>[];
                         if (isMe) {
                           transports.add(Icon(Icons.person,
                               size: 14, color: theme.colorScheme.primary));
-                        } else if (!isConnected) {
-                          transports.add(Icon(Icons.bluetooth_disabled,
-                              size: 14, color: theme.colorScheme.outline));
-                        } else {
-                          if (bleUp) {
-                            transports.add(const Icon(Icons.bluetooth,
-                                size: 14, color: bleBlue));
-                          }
-                          if (wifiUp) {
+                        } else if (isDirect) {
+                          // Direct BLE neighbor. Add the Wi-Fi badge ONLY if the
+                          // peer is Wi-Fi-Direct-capable (advertised) AND we have
+                          // a tunnel up — Wi-Fi Direct is Android-only, so the
+                          // iPad (iOS, BLE-only) never gets it.
+                          transports.add(const Icon(Icons.bluetooth,
+                              size: 14, color: bleBlue));
+                          if (_wifiTunnelPeers > 0 &&
+                              shortId != null &&
+                              _wifiPeers.contains(shortId)) {
                             transports.add(const Icon(Icons.wifi,
                                 size: 14, color: Colors.green));
                           }
-                          if (transports.isEmpty) {
-                            // Live (heartbeating) but carrier flags not up yet.
-                            transports.add(const Icon(Icons.lan,
-                                size: 14, color: Colors.green));
-                          }
+                        } else {
+                          // Relayed / multi-hop: reachable via another node.
+                          transports.add(Icon(Icons.alt_route,
+                              size: 14, color: Colors.orange.shade700));
                         }
+                        final isConnected = true; // listed => reachable
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 3),
                           child: Row(children: [
@@ -2029,26 +2503,9 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(children: [
-                      Text('My Capabilities',
-                          style: theme.textTheme.titleSmall
-                              ?.copyWith(fontWeight: FontWeight.bold)),
-                      const Spacer(),
-                      if (hasNode)
-                        TextButton(
-                          onPressed: () {
-                            if (_node != null) _publishSelf(_node!);
-                          },
-                          style: TextButton.styleFrom(
-                            padding: EdgeInsets.zero,
-                            minimumSize: Size.zero,
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          ),
-                          child: Text('publish',
-                              style: theme.textTheme.bodySmall
-                                  ?.copyWith(color: theme.colorScheme.primary)),
-                        ),
-                    ]),
+                    Text('My Capabilities',
+                        style: theme.textTheme.titleSmall
+                            ?.copyWith(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
                     Wrap(
                       spacing: 6,

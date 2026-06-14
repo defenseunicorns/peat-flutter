@@ -293,6 +293,31 @@ class PeatFlutterNode {
   String publishDocument(String collection, String json) =>
       _node.publishDocument(collection, json);
 
+  // ── Shared water-supply Counter (CRDT-over-Automerge-over-BLE) ──────────
+  // A self-contained Automerge Counter doc; its save() bytes (hex) ride the
+  // BLE frame bus and merge natively (commutative/idempotent), so the caller
+  // can broadcast/relay freely without dedup or ordering concerns.
+
+  /// Current merged value of the shared water-supply Counter.
+  int crdtCounterValue() => _node.crdtCounterValue();
+
+  /// Apply [delta] liters; returns hex doc bytes to broadcast to peers.
+  String crdtCounterIncrement(int delta) => _node.crdtCounterIncrement(delta);
+
+  /// Merge an inbound peer doc (hex); returns the new value.
+  int crdtCounterMerge(String hexDoc) => _node.crdtCounterMerge(hexDoc);
+
+  /// Current hex doc bytes for periodic re-broadcast (late-joiner catch-up).
+  String crdtCounterSnapshot() => _node.crdtCounterSnapshot();
+
+  // Generic CRDT KV documents (nodes/commands/cells/mission).
+  String crdtKvPut(String collection, String key, String valueJson) =>
+      _node.crdtKvPut(collection, key, valueJson);
+  String crdtKvAll(String collection) => _node.crdtKvAll(collection);
+  void crdtKvMerge(String collection, String hexDoc) =>
+      _node.crdtKvMerge(collection, hexDoc);
+  String crdtKvSnapshot(String collection) => _node.crdtKvSnapshot(collection);
+
   /// Cancel all active subscriptions and release FFI resources.
   void dispose() {
     _changeTimer?.cancel();

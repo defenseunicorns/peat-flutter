@@ -42,6 +42,18 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // Disable R8/shrinking for release. `flutter build apk --release`
+            // enables it by default, but it breaks this app's native stack:
+            //   * it removes peat-ffi JNI methods (PeatJni) that are only called
+            //     via dart:ffi, so the .so's bulk RegisterNatives aborts; and
+            //   * it strips/renames com.sun.jna.** + the peat-btle uniffi
+            //     bindings, which JNA resolves reflectively — killing the BLE
+            //     transport entirely (no advertise/scan, no peers).
+            // This is the demo example app; shrinking buys nothing here and the
+            // keep-rule surface for JNA + uniffi is large and brittle, so turn
+            // it off and let release behave like the (working) debug build.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }

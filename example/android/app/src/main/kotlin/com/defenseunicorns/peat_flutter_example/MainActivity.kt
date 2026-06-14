@@ -116,6 +116,7 @@ class MainActivity : FlutterActivity() {
                 }
                 "isBleRunning" -> result.success(bleBridge?.isRunning() ?: false)
                 "blePeerCount" -> result.success(bleBridge?.peerCount() ?: 0)
+                "blePeerIds" -> result.success(bleBridge?.peerIds() ?: emptyList<Long>())
                 "publishDoc" -> {
                     // Publish a raw doc through the node layer (NOT put_document /
                     // storage_backend) so it reaches the ADR-059 fan-out and
@@ -134,6 +135,19 @@ class MainActivity : FlutterActivity() {
                     } catch (t: Throwable) {
                         result.error("PUBLISH", t.message, null)
                     }
+                }
+                "crdtTx" -> {
+                    // Broadcast a CRDT-counter frame (Automerge-over-BLE, no
+                    // lite-bridge). Dart has already built the full
+                    // [0xAF][2=crdt][collLen][coll][hex] envelope; we just put it
+                    // on the radio. peat-btle's 0xAF opaque relay carries it
+                    // multi-hop. Inbound is handled in BleBridge.onDecryptedData.
+                    val bytes = call.argument<ByteArray>("bytes")
+                    if (bytes == null) {
+                        result.error("ARG", "bytes required", null); return@setMethodCallHandler
+                    }
+                    bleBridge?.broadcastRaw(bytes)
+                    result.success(true)
                 }
                 else -> result.notImplemented()
             }

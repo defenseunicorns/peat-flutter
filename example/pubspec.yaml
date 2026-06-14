@@ -17,6 +17,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   path_provider: ^2.1.0
   shared_preferences: ^2.3.0
+  device_info_plus: ^10.1.0
 
   # Mobile BLE: uncomment when targeting Android/iOS with Dart-owned radio.
   # Requires BLE runtime permissions (declared in android/app/src/main/AndroidManifest.xml
