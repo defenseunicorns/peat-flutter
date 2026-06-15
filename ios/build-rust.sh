@@ -14,7 +14,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PEAT_DIR="${PEAT_WORKSPACE_DIR:-"${SCRIPT_DIR}/../../peat"}"
 FRAMEWORKS_DIR="${SCRIPT_DIR}/Frameworks"
-FEATURES="sync,bluetooth"
+FEATURES="sync,bluetooth,lite-bridge"
 MANIFEST="${PEAT_DIR}/Cargo.toml"
 export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-16.0}"
 

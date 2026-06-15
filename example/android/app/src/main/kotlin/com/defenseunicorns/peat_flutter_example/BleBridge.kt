@@ -40,6 +40,11 @@ class BleBridge(private val context: Context) : PeatMeshListener {
         // Envelope transport flag: which peat-ffi inbound decoder to use.
         private const val TRANSPORT_TYPED = 0 // typed 0xB6 BleTranslator ("ble")
         private const val TRANSPORT_LITE = 1  // universal peat-lite ("ble-lite")
+        private const val TRANSPORT_CRDT = 2  // Automerge CRDT doc bytes (hex)
+        // transport=2 payload framing: [msgId:u32 BE][fragIdx:u8][fragCount:u8][chunk].
+        // A large hex doc exceeds the ~512B BLE wire ceiling, so the sender splits
+        // it; we reassemble before ingest. See main.dart _broadcastCrdt.
+        private const val CRDT_HDR = 6
         // Both devices must share this so their advertisements match.
         // MUST be <= 8 bytes: peat-btle truncates the advertised mesh id to 8
         // bytes (service data) but matchesMesh() compares it for exact equality
@@ -64,6 +69,13 @@ class BleBridge(private val context: Context) : PeatMeshListener {
     fun isRunning(): Boolean = peatBtle != null
 
     fun peerCount(): Int = connectedPeers.size
+
+    // Node-ids (32-bit, as Long) of DIRECTLY-connected BLE peers. Surfaced to
+    // Dart so the Connections view can mark a peer "direct" vs "relayed" (a node
+    // reachable only via the CRDT relay won't appear here). connectedPeers holds
+    // peer.nodeId.toString() (decimal), so parse back to Long.
+    fun peerIds(): List<Long> =
+        synchronized(connectedPeers) { connectedPeers.mapNotNull { it.toLongOrNull() } }
 
     // Outbound: every frame the mesh fans out for a BLE transport gets wrapped
     // and broadcast over the radio. Held as a field so start() can re-subscribe
@@ -246,6 +258,9 @@ class BleBridge(private val context: Context) : PeatMeshListener {
         try { PeatJni.bleRemovePeerJni(handle, id) } catch (t: Throwable) { Log.e(TAG, "bleRemovePeer failed", t) }
     }
 
+    // CRDT-frame reassembly buffer, keyed by "collection:msgId" -> (fragIdx -> chunk).
+    private val crdtReasm = HashMap<String, HashMap<Int, ByteArray>>()
+
     override fun onDecryptedData(peer: PeatPeer?, data: ByteArray) {
         if (handle == 0L) return
         // Envelope: [0]=0xAF [1]=transport(0=ble,1=ble-lite) [2]=collLen [3..]=coll [..]=frame
@@ -256,18 +271,65 @@ class BleBridge(private val context: Context) : PeatMeshListener {
         val collection = String(data, 3, collLen, Charsets.UTF_8)
         val frame = data.copyOfRange(3 + collLen, data.size)
         try {
-            val id = if (transport == TRANSPORT_LITE) {
-                PeatJni.ingestInboundLiteFrameJni(handle, collection, frame)
+            if (transport == TRANSPORT_CRDT) {
+                // Automerge CRDT doc (hex), fragmented: reassemble then merge by
+                // collection ("supply" -> counter, else -> generic KV).
+                // Idempotent/commutative. No lite-bridge.
+                val full = reassembleCrdt(collection, frame) ?: return
+                PeatJni.ingestCrdtFrameJni(handle, collection, full)
+            } else if (transport == TRANSPORT_LITE) {
+                val id = PeatJni.ingestInboundLiteFrameJni(handle, collection, frame)
+                Log.d(TAG, "inbound [lite/$collection] ${frame.size}B -> ${id ?: "no-op"}")
             } else {
-                PeatJni.ingestInboundFrameJni(handle, collection, frame)
+                val id = PeatJni.ingestInboundFrameJni(handle, collection, frame)
+                Log.d(TAG, "inbound [typed/$collection] ${frame.size}B -> ${id ?: "no-op"}")
             }
-            Log.d(TAG, "inbound [t=$transport/$collection] ${frame.size}B -> ${id ?: "no-op"}")
         } catch (t: Throwable) {
             Log.e(TAG, "ingest failed (transport=$transport)", t)
         }
     }
 
+    // Reassemble a transport=2 fragment. Returns the full payload (hex bytes)
+    // once every fragment of a message has arrived, else null. Single-fragment
+    // messages (fragCount<=1) pass straight through. Keyed by "collection:msgId";
+    // a re-sent complete set just overwrites. Buffer is bounded defensively.
+    private fun reassembleCrdt(collection: String, frame: ByteArray): ByteArray? {
+        if (frame.size < CRDT_HDR) return null
+        val msgId = ((frame[0].toInt() and 0xFF) shl 24) or
+            ((frame[1].toInt() and 0xFF) shl 16) or
+            ((frame[2].toInt() and 0xFF) shl 8) or
+            (frame[3].toInt() and 0xFF)
+        val fragIdx = frame[4].toInt() and 0xFF
+        val fragCount = frame[5].toInt() and 0xFF
+        val chunk = frame.copyOfRange(CRDT_HDR, frame.size)
+        if (fragCount <= 1) return chunk
+        val key = "$collection:$msgId"
+        val parts = crdtReasm.getOrPut(key) { HashMap() }
+        parts[fragIdx] = chunk
+        if (parts.size < fragCount) {
+            if (crdtReasm.size > 32) crdtReasm.clear() // drop stale partials
+            return null
+        }
+        val out = java.io.ByteArrayOutputStream()
+        for (i in 0 until fragCount) {
+            val p = parts[i] ?: return null // gap — wait for the missing fragment
+            out.write(p)
+        }
+        crdtReasm.remove(key)
+        return out.toByteArray()
+    }
+
     // ---------- helpers ----------
+
+    /// Broadcast a pre-built CRDT frame (Dart already wrapped the
+    /// [0xAF][2][collLen][coll][hex] envelope). peat-btle relays 0xAF frames.
+    fun broadcastRaw(bytes: ByteArray) {
+        try {
+            peatBtle?.broadcastBytes(bytes)
+        } catch (t: Throwable) {
+            Log.e(TAG, "broadcastRaw failed", t)
+        }
+    }
 
     private fun peerIdOf(peer: PeatPeer): String = peer.nodeId.toString()
 

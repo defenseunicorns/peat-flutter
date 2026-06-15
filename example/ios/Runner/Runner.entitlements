@@ -16,8 +16,12 @@
 	  before Automatic signing can produce a provisioning profile that
 	  includes it. Until granted, signed builds will fail with a missing-
 	  entitlement error.
+
+	  DISABLED: verified 2026-06-14 the App ID still lacks this capability
+	  ("Entitlement com.apple.developer.networking.multicast requires approval
+	  from Apple"), so enabling it breaks device signing. Kept off so the BLE
+	  demo device-builds; RESTORE once Apple grants it for the App ID.
 	-->
-	<key>com.apple.developer.networking.multicast</key>
-	<true/>
+	<!-- <key>com.apple.developer.networking.multicast</key><true/> -->
 </dict>
 </plist>

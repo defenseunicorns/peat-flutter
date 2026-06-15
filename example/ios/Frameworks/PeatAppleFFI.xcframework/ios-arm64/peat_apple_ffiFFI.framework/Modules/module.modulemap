@@ -1,0 +1,4 @@
+framework module peat_apple_ffiFFI {
+    header "peat_apple_ffiFFI.h"
+    export *
+}

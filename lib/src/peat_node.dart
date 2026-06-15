@@ -280,6 +280,47 @@ class PeatFlutterNode {
   String? ingestInboundFrame(String collection, Uint8List postcardBytes) =>
       _node.ingestInboundFrame(collection, postcardBytes);
 
+  /// Feed a BLE inbound frame on the universal-Document ("ble-lite") codec.
+  ///
+  /// The counterpart of [ingestInboundFrame] for raw collections the typed
+  /// translator declines (e.g. the demo counter, nodes/cells/mission/commands).
+  /// Returns the document ID if accepted, null if the collection is unknown.
+  String? ingestInboundLiteFrame(String collection, Uint8List envelopeBytes) =>
+      _node.ingestInboundLiteFrame(collection, envelopeBytes);
+
+  /// Publish a JSON document through the node layer so it reaches the ADR-059
+  /// fan-out and is emitted over the bridged transports (BLE/Wi-Fi). Unlike
+  /// [publishRaw]/[putDocument] (which write to storage_backend and bypass the
+  /// fan-out), this is what makes a locally-authored doc sync to peers over
+  /// BLE. The JSON's `id` field, if present, becomes the doc id (returned).
+  String publishDocument(String collection, String json) =>
+      _node.publishDocument(collection, json);
+
+  // ── Shared water-supply Counter (CRDT-over-Automerge-over-BLE) ──────────
+  // A self-contained Automerge Counter doc; its save() bytes (hex) ride the
+  // BLE frame bus and merge natively (commutative/idempotent), so the caller
+  // can broadcast/relay freely without dedup or ordering concerns.
+
+  /// Current merged value of the shared water-supply Counter.
+  int crdtCounterValue() => _node.crdtCounterValue();
+
+  /// Apply [delta] liters; returns hex doc bytes to broadcast to peers.
+  String crdtCounterIncrement(int delta) => _node.crdtCounterIncrement(delta);
+
+  /// Merge an inbound peer doc (hex); returns the new value.
+  int crdtCounterMerge(String hexDoc) => _node.crdtCounterMerge(hexDoc);
+
+  /// Current hex doc bytes for periodic re-broadcast (late-joiner catch-up).
+  String crdtCounterSnapshot() => _node.crdtCounterSnapshot();
+
+  // Generic CRDT KV documents (nodes/commands/cells/mission).
+  String crdtKvPut(String collection, String key, String valueJson) =>
+      _node.crdtKvPut(collection, key, valueJson);
+  String crdtKvAll(String collection) => _node.crdtKvAll(collection);
+  void crdtKvMerge(String collection, String hexDoc) =>
+      _node.crdtKvMerge(collection, hexDoc);
+  String crdtKvSnapshot(String collection) => _node.crdtKvSnapshot(collection);
+
   /// Cancel all active subscriptions and release FFI resources.
   void dispose() {
     _changeTimer?.cancel();

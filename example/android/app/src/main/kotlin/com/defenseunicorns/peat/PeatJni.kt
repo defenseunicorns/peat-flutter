@@ -209,6 +209,11 @@ object PeatJni {
         envelopeBytes: ByteArray,
     ): String?
 
+    // Merge an inbound CRDT frame (hex of the Automerge doc's save() bytes).
+    // Routes by collection: "supply" -> Counter (returns new value); else ->
+    // generic CRDT KV doc (returns 0). -1 on error.
+    @JvmStatic external fun ingestCrdtFrameJni(handle: Long, collection: String, hexBytes: ByteArray): Long
+
     // -- BLE transport state (ADR-039) -------------------------------------
 
     @JvmStatic external fun bleSetStartedJni(handle: Long, started: Boolean)

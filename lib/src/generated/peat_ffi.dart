@@ -3860,6 +3860,26 @@ class PeatFfiFfi {
     if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_ingest_inbound_frame != 32650) {
       throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_ingest_inbound_frame`: expected 32650, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_ingest_inbound_frame');
     }
+    final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_ingest_inbound_lite_frame;
+    try {
+      final int Function() checksumFn = lib.lookupFunction<ffi.Uint16 Function(), int Function()>('uniffi_peat_ffi_checksum_method_peatnode_ingest_inbound_lite_frame');
+      _checksum_uniffi_peat_ffi_checksum_method_peatnode_ingest_inbound_lite_frame = checksumFn();
+    } catch (err) {
+      throw StateError('Missing or invalid UniFFI checksum symbol `uniffi_peat_ffi_checksum_method_peatnode_ingest_inbound_lite_frame`: $err');
+    }
+    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_ingest_inbound_lite_frame != 33280) {
+      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_ingest_inbound_lite_frame`: expected 33280, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_ingest_inbound_lite_frame');
+    }
+    final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_publish_document;
+    try {
+      final int Function() checksumFn = lib.lookupFunction<ffi.Uint16 Function(), int Function()>('uniffi_peat_ffi_checksum_method_peatnode_publish_document');
+      _checksum_uniffi_peat_ffi_checksum_method_peatnode_publish_document = checksumFn();
+    } catch (err) {
+      throw StateError('Missing or invalid UniFFI checksum symbol `uniffi_peat_ffi_checksum_method_peatnode_publish_document`: $err');
+    }
+    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_publish_document != 25812) {
+      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_publish_document`: expected 25812, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_publish_document');
+    }
     final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_list_documents;
     try {
       final int Function() checksumFn = lib.lookupFunction<ffi.Uint16 Function(), int Function()>('uniffi_peat_ffi_checksum_method_peatnode_list_documents');
@@ -4289,7 +4309,17 @@ class PeatFfiFfi {
           ..len = (returnBuf + 5).ref.u64
           ..data = (returnBuf + 6).ref.ptr.cast<ffi.Uint8>();
         rustRetBufferPtrs.add(errBufPtr);
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
       retBufPtr.ref
@@ -4344,7 +4374,17 @@ class PeatFfiFfi {
           ..len = (returnBuf + 5).ref.u64
           ..data = (returnBuf + 6).ref.ptr.cast<ffi.Uint8>();
         rustRetBufferPtrs.add(errBufPtr);
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
       retBufPtr.ref
@@ -4432,7 +4472,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
       retBufPtr.ref
@@ -4485,7 +4535,17 @@ class PeatFfiFfi {
           ..len = (returnBuf + 5).ref.u64
           ..data = (returnBuf + 6).ref.ptr.cast<ffi.Uint8>();
         rustRetBufferPtrs.add(errBufPtr);
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
       retBufPtr.ref
@@ -4574,7 +4634,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
       retBufPtr.ref
@@ -4683,7 +4753,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       return;
     } finally {
@@ -4746,7 +4826,17 @@ class PeatFfiFfi {
           ..len = (returnBuf + 5).ref.u64
           ..data = (returnBuf + 6).ref.ptr.cast<ffi.Uint8>();
         rustRetBufferPtrs.add(errBufPtr);
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
       retBufPtr.ref
@@ -4886,7 +4976,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       return;
     } finally {
@@ -4984,7 +5084,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       return;
     } finally {
@@ -5047,7 +5157,17 @@ class PeatFfiFfi {
           ..len = (returnBuf + 5).ref.u64
           ..data = (returnBuf + 6).ref.ptr.cast<ffi.Uint8>();
         rustRetBufferPtrs.add(errBufPtr);
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
       retBufPtr.ref
@@ -5117,7 +5237,17 @@ class PeatFfiFfi {
           ..len = (returnBuf + 5).ref.u64
           ..data = (returnBuf + 6).ref.ptr.cast<ffi.Uint8>();
         rustRetBufferPtrs.add(errBufPtr);
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
       retBufPtr.ref
@@ -5225,7 +5355,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
       retBufPtr.ref
@@ -5302,7 +5442,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
       retBufPtr.ref
@@ -5380,7 +5530,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
       retBufPtr.ref
@@ -5520,7 +5680,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
       retBufPtr.ref
@@ -5597,7 +5767,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
       retBufPtr.ref
@@ -5675,7 +5855,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
       retBufPtr.ref
@@ -5784,7 +5974,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
       retBufPtr.ref
@@ -5861,7 +6061,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
       retBufPtr.ref
@@ -5957,7 +6167,14 @@ class PeatFfiFfi {
       (argBuf + 1).ref.u64 = collectionRustBuffer.capacity;
       (argBuf + 2).ref.u64 = collectionRustBuffer.len;
       (argBuf + 3).ref.ptr = collectionRustBuffer.data.cast<ffi.Void>();
-      final Uint8List postcardBytesBytes = postcardBytes;
+      // UniFFI lowers a `Vec<u8>` arg as a 4-byte BE length prefix + bytes.
+      final Uint8List postcardBytesBytes = (() {
+        final hdr = ByteData(4)..setInt32(0, postcardBytes.length, Endian.big);
+        final out = Uint8List(4 + postcardBytes.length);
+        out.setRange(0, 4, hdr.buffer.asUint8List());
+        out.setRange(4, 4 + postcardBytes.length, postcardBytes);
+        return out;
+      })();
       final ffi.Pointer<ffi.Uint8> postcardBytesPtr = postcardBytesBytes.isEmpty ? ffi.nullptr : calloc<ffi.Uint8>(postcardBytesBytes.length);
       if (postcardBytesBytes.isNotEmpty) { postcardBytesPtr.asTypedList(postcardBytesBytes.length).setAll(0, postcardBytesBytes); }
       foreignArgPtrs.add(postcardBytesPtr);
@@ -6001,7 +6218,321 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
+      }
+      final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
+      retBufPtr.ref
+        ..capacity = (returnBuf + 0).ref.u64
+        ..len = (returnBuf + 1).ref.u64
+        ..data = (returnBuf + 2).ref.ptr.cast<ffi.Uint8>();
+      rustRetBufferPtrs.add(retBufPtr);
+      final Uint8List retBytes = retBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(retBufPtr.ref.data.asTypedList(retBufPtr.ref.len));
+      final _optReader = _UniFfiBinaryReader(retBytes);
+      final int _optTag = _optReader.readI8();
+      if (_optTag == 0) return null;
+      return _optReader.readString();
+    } finally {
+      for (final ptr in foreignArgPtrs) {
+        if (ptr != ffi.nullptr) {
+          calloc.free(ptr);
+        }
+      }
+      for (final bufPtr in rustRetBufferPtrs) {
+        if (bufPtr.ref.data == ffi.nullptr && bufPtr.ref.len == 0 && bufPtr.ref.capacity == 0) {
+          continue;
+        }
+        final ffi.Pointer<_UniFfiRustCallStatus> freeStatusPtr = calloc<_UniFfiRustCallStatus>();
+        freeStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
+        freeStatusPtr.ref.errorBuf
+          ..capacity = 0
+          ..len = 0
+          ..data = ffi.nullptr;
+        _uniFfiRustBufferFree(bufPtr.ref, freeStatusPtr);
+        calloc.free(freeStatusPtr);
+        calloc.free(bufPtr);
+      }
+      calloc.free(argBuf);
+      calloc.free(returnBuf);
+    }
+  }
+
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodePublishDocumentFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_publish_document');
+
+  String peatNodeInvokePublishDocument(int handle, String collection, String json) {
+    final ffi.Pointer<_UniFfiFfiBufferElement> argBuf = calloc<_UniFfiFfiBufferElement>(7);
+    final ffi.Pointer<_UniFfiFfiBufferElement> returnBuf = calloc<_UniFfiFfiBufferElement>(7);
+    final foreignArgPtrs = <ffi.Pointer<ffi.Uint8>>[];
+    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
+    try {
+      final int clonedHandle;
+      {
+        final cloneStatusPtr = calloc<_UniFfiRustCallStatus>();
+        try {
+          cloneStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
+          cloneStatusPtr.ref.errorBuf
+            ..capacity = 0
+            ..len = 0
+            ..data = ffi.nullptr;
+          clonedHandle = _peatNodeClone(handle, cloneStatusPtr);
+          if (cloneStatusPtr.ref.code != _uniFfiRustCallStatusSuccess) {
+            throw StateError('UniFFI clone failed with status ${cloneStatusPtr.ref.code}');
+          }
+        } finally {
+          calloc.free(cloneStatusPtr);
+        }
+      }
+      (argBuf + 0).ref.u64 = clonedHandle;
+      final Uint8List collectionBytes = Uint8List.fromList(utf8.encode(collection));
+      final ffi.Pointer<ffi.Uint8> collectionPtr = collectionBytes.isEmpty ? ffi.nullptr : calloc<ffi.Uint8>(collectionBytes.length);
+      if (collectionBytes.isNotEmpty) { collectionPtr.asTypedList(collectionBytes.length).setAll(0, collectionBytes); }
+      foreignArgPtrs.add(collectionPtr);
+      final ffi.Pointer<_UniFfiRustCallStatus> collectionFromBytesStatusPtr = calloc<_UniFfiRustCallStatus>();
+      collectionFromBytesStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
+      collectionFromBytesStatusPtr.ref.errorBuf
+        ..capacity = 0
+        ..len = 0
+        ..data = ffi.nullptr;
+      final ffi.Pointer<_UniFfiForeignBytes> collectionForeignPtr = calloc<_UniFfiForeignBytes>();
+      collectionForeignPtr.ref
+        ..len = collectionBytes.length
+        ..data = collectionPtr;
+      final _UniFfiRustBuffer collectionRustBuffer = _uniFfiRustBufferFromBytes(collectionForeignPtr.ref, collectionFromBytesStatusPtr);
+      calloc.free(collectionForeignPtr);
+      final int collectionFromBytesCode = collectionFromBytesStatusPtr.ref.code;
+      final _UniFfiRustBuffer collectionFromBytesErrBuf = collectionFromBytesStatusPtr.ref.errorBuf;
+      calloc.free(collectionFromBytesStatusPtr);
+      if (collectionFromBytesCode != _uniFfiRustCallStatusSuccess) {
+        final ffi.Pointer<_UniFfiRustBuffer> collectionFromBytesErrBufPtr = calloc<_UniFfiRustBuffer>();
+        collectionFromBytesErrBufPtr.ref
+          ..capacity = collectionFromBytesErrBuf.capacity
+          ..len = collectionFromBytesErrBuf.len
+          ..data = collectionFromBytesErrBuf.data;
+        rustRetBufferPtrs.add(collectionFromBytesErrBufPtr);
+        throw StateError('UniFFI rustbuffer_from_bytes failed with status $collectionFromBytesCode');
+      }
+      (argBuf + 1).ref.u64 = collectionRustBuffer.capacity;
+      (argBuf + 2).ref.u64 = collectionRustBuffer.len;
+      (argBuf + 3).ref.ptr = collectionRustBuffer.data.cast<ffi.Void>();
+      final Uint8List jsonBytes = Uint8List.fromList(utf8.encode(json));
+      final ffi.Pointer<ffi.Uint8> jsonPtr = jsonBytes.isEmpty ? ffi.nullptr : calloc<ffi.Uint8>(jsonBytes.length);
+      if (jsonBytes.isNotEmpty) { jsonPtr.asTypedList(jsonBytes.length).setAll(0, jsonBytes); }
+      foreignArgPtrs.add(jsonPtr);
+      final ffi.Pointer<_UniFfiRustCallStatus> jsonFromBytesStatusPtr = calloc<_UniFfiRustCallStatus>();
+      jsonFromBytesStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
+      jsonFromBytesStatusPtr.ref.errorBuf
+        ..capacity = 0
+        ..len = 0
+        ..data = ffi.nullptr;
+      final ffi.Pointer<_UniFfiForeignBytes> jsonForeignPtr = calloc<_UniFfiForeignBytes>();
+      jsonForeignPtr.ref
+        ..len = jsonBytes.length
+        ..data = jsonPtr;
+      final _UniFfiRustBuffer jsonRustBuffer = _uniFfiRustBufferFromBytes(jsonForeignPtr.ref, jsonFromBytesStatusPtr);
+      calloc.free(jsonForeignPtr);
+      final int jsonFromBytesCode = jsonFromBytesStatusPtr.ref.code;
+      final _UniFfiRustBuffer jsonFromBytesErrBuf = jsonFromBytesStatusPtr.ref.errorBuf;
+      calloc.free(jsonFromBytesStatusPtr);
+      if (jsonFromBytesCode != _uniFfiRustCallStatusSuccess) {
+        final ffi.Pointer<_UniFfiRustBuffer> jsonFromBytesErrBufPtr = calloc<_UniFfiRustBuffer>();
+        jsonFromBytesErrBufPtr.ref
+          ..capacity = jsonFromBytesErrBuf.capacity
+          ..len = jsonFromBytesErrBuf.len
+          ..data = jsonFromBytesErrBuf.data;
+        rustRetBufferPtrs.add(jsonFromBytesErrBufPtr);
+        throw StateError('UniFFI rustbuffer_from_bytes failed with status $jsonFromBytesCode');
+      }
+      (argBuf + 4).ref.u64 = jsonRustBuffer.capacity;
+      (argBuf + 5).ref.u64 = jsonRustBuffer.len;
+      (argBuf + 6).ref.ptr = jsonRustBuffer.data.cast<ffi.Void>();
+      _peatNodePublishDocumentFfiBuffer(argBuf, returnBuf);
+      final int statusCode = (returnBuf + 3).ref.i8;
+      if (statusCode != _uniFfiRustCallStatusSuccess) {
+        final ffi.Pointer<_UniFfiRustBuffer> errBufPtr = calloc<_UniFfiRustBuffer>();
+        errBufPtr.ref
+          ..capacity = (returnBuf + 4).ref.u64
+          ..len = (returnBuf + 5).ref.u64
+          ..data = (returnBuf + 6).ref.ptr.cast<ffi.Uint8>();
+        rustRetBufferPtrs.add(errBufPtr);
+        if (statusCode == _uniFfiRustCallStatusError) {
+          final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          throw _uniffiLiftPeatErrorException(errBytes);
+        }
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
+      }
+      final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
+      retBufPtr.ref
+        ..capacity = (returnBuf + 0).ref.u64
+        ..len = (returnBuf + 1).ref.u64
+        ..data = (returnBuf + 2).ref.ptr.cast<ffi.Uint8>();
+      rustRetBufferPtrs.add(retBufPtr);
+      final Uint8List retBytes = retBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(retBufPtr.ref.data.asTypedList(retBufPtr.ref.len));
+      return _UniFfiBinaryReader(retBytes).readString();
+    } finally {
+      for (final ptr in foreignArgPtrs) {
+        if (ptr != ffi.nullptr) {
+          calloc.free(ptr);
+        }
+      }
+      for (final bufPtr in rustRetBufferPtrs) {
+        if (bufPtr.ref.data == ffi.nullptr && bufPtr.ref.len == 0 && bufPtr.ref.capacity == 0) {
+          continue;
+        }
+        final ffi.Pointer<_UniFfiRustCallStatus> freeStatusPtr = calloc<_UniFfiRustCallStatus>();
+        freeStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
+        freeStatusPtr.ref.errorBuf
+          ..capacity = 0
+          ..len = 0
+          ..data = ffi.nullptr;
+        _uniFfiRustBufferFree(bufPtr.ref, freeStatusPtr);
+        calloc.free(freeStatusPtr);
+        calloc.free(bufPtr);
+      }
+      calloc.free(argBuf);
+      calloc.free(returnBuf);
+    }
+  }
+
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeIngestInboundLiteFrameFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_ingest_inbound_lite_frame');
+
+  String? peatNodeInvokeIngestInboundLiteFrame(int handle, String collection, Uint8List envelopeBytes) {
+    final ffi.Pointer<_UniFfiFfiBufferElement> argBuf = calloc<_UniFfiFfiBufferElement>(7);
+    final ffi.Pointer<_UniFfiFfiBufferElement> returnBuf = calloc<_UniFfiFfiBufferElement>(7);
+    final foreignArgPtrs = <ffi.Pointer<ffi.Uint8>>[];
+    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
+    try {
+      final int clonedHandle;
+      {
+        final cloneStatusPtr = calloc<_UniFfiRustCallStatus>();
+        try {
+          cloneStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
+          cloneStatusPtr.ref.errorBuf
+            ..capacity = 0
+            ..len = 0
+            ..data = ffi.nullptr;
+          clonedHandle = _peatNodeClone(handle, cloneStatusPtr);
+          if (cloneStatusPtr.ref.code != _uniFfiRustCallStatusSuccess) {
+            throw StateError('UniFFI clone failed with status ${cloneStatusPtr.ref.code}');
+          }
+        } finally {
+          calloc.free(cloneStatusPtr);
+        }
+      }
+      (argBuf + 0).ref.u64 = clonedHandle;
+      final Uint8List collectionBytes = Uint8List.fromList(utf8.encode(collection));
+      final ffi.Pointer<ffi.Uint8> collectionPtr = collectionBytes.isEmpty ? ffi.nullptr : calloc<ffi.Uint8>(collectionBytes.length);
+      if (collectionBytes.isNotEmpty) { collectionPtr.asTypedList(collectionBytes.length).setAll(0, collectionBytes); }
+      foreignArgPtrs.add(collectionPtr);
+      final ffi.Pointer<_UniFfiRustCallStatus> collectionFromBytesStatusPtr = calloc<_UniFfiRustCallStatus>();
+      collectionFromBytesStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
+      collectionFromBytesStatusPtr.ref.errorBuf
+        ..capacity = 0
+        ..len = 0
+        ..data = ffi.nullptr;
+      final ffi.Pointer<_UniFfiForeignBytes> collectionForeignPtr = calloc<_UniFfiForeignBytes>();
+      collectionForeignPtr.ref
+        ..len = collectionBytes.length
+        ..data = collectionPtr;
+      final _UniFfiRustBuffer collectionRustBuffer = _uniFfiRustBufferFromBytes(collectionForeignPtr.ref, collectionFromBytesStatusPtr);
+      calloc.free(collectionForeignPtr);
+      final int collectionFromBytesCode = collectionFromBytesStatusPtr.ref.code;
+      final _UniFfiRustBuffer collectionFromBytesErrBuf = collectionFromBytesStatusPtr.ref.errorBuf;
+      calloc.free(collectionFromBytesStatusPtr);
+      if (collectionFromBytesCode != _uniFfiRustCallStatusSuccess) {
+        final ffi.Pointer<_UniFfiRustBuffer> collectionFromBytesErrBufPtr = calloc<_UniFfiRustBuffer>();
+        collectionFromBytesErrBufPtr.ref
+          ..capacity = collectionFromBytesErrBuf.capacity
+          ..len = collectionFromBytesErrBuf.len
+          ..data = collectionFromBytesErrBuf.data;
+        rustRetBufferPtrs.add(collectionFromBytesErrBufPtr);
+        throw StateError('UniFFI rustbuffer_from_bytes failed with status $collectionFromBytesCode');
+      }
+      (argBuf + 1).ref.u64 = collectionRustBuffer.capacity;
+      (argBuf + 2).ref.u64 = collectionRustBuffer.len;
+      (argBuf + 3).ref.ptr = collectionRustBuffer.data.cast<ffi.Void>();
+      // UniFFI lowers a `Vec<u8>` arg as a sequence: a 4-byte BE length prefix
+      // followed by the bytes (NOT raw bytes like a String). Build that here,
+      // otherwise the Rust side fails with "Failed to convert arg".
+      final Uint8List envelopeBytesBytes = (() {
+        final hdr = ByteData(4)..setInt32(0, envelopeBytes.length, Endian.big);
+        final out = Uint8List(4 + envelopeBytes.length);
+        out.setRange(0, 4, hdr.buffer.asUint8List());
+        out.setRange(4, 4 + envelopeBytes.length, envelopeBytes);
+        return out;
+      })();
+      final ffi.Pointer<ffi.Uint8> envelopeBytesPtr = envelopeBytesBytes.isEmpty ? ffi.nullptr : calloc<ffi.Uint8>(envelopeBytesBytes.length);
+      if (envelopeBytesBytes.isNotEmpty) { envelopeBytesPtr.asTypedList(envelopeBytesBytes.length).setAll(0, envelopeBytesBytes); }
+      foreignArgPtrs.add(envelopeBytesPtr);
+      final ffi.Pointer<_UniFfiRustCallStatus> envelopeBytesFromBytesStatusPtr = calloc<_UniFfiRustCallStatus>();
+      envelopeBytesFromBytesStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
+      envelopeBytesFromBytesStatusPtr.ref.errorBuf
+        ..capacity = 0
+        ..len = 0
+        ..data = ffi.nullptr;
+      final ffi.Pointer<_UniFfiForeignBytes> envelopeBytesForeignPtr = calloc<_UniFfiForeignBytes>();
+      envelopeBytesForeignPtr.ref
+        ..len = envelopeBytesBytes.length
+        ..data = envelopeBytesPtr;
+      final _UniFfiRustBuffer envelopeBytesRustBuffer = _uniFfiRustBufferFromBytes(envelopeBytesForeignPtr.ref, envelopeBytesFromBytesStatusPtr);
+      calloc.free(envelopeBytesForeignPtr);
+      final int envelopeBytesFromBytesCode = envelopeBytesFromBytesStatusPtr.ref.code;
+      final _UniFfiRustBuffer envelopeBytesFromBytesErrBuf = envelopeBytesFromBytesStatusPtr.ref.errorBuf;
+      calloc.free(envelopeBytesFromBytesStatusPtr);
+      if (envelopeBytesFromBytesCode != _uniFfiRustCallStatusSuccess) {
+        final ffi.Pointer<_UniFfiRustBuffer> envelopeBytesFromBytesErrBufPtr = calloc<_UniFfiRustBuffer>();
+        envelopeBytesFromBytesErrBufPtr.ref
+          ..capacity = envelopeBytesFromBytesErrBuf.capacity
+          ..len = envelopeBytesFromBytesErrBuf.len
+          ..data = envelopeBytesFromBytesErrBuf.data;
+        rustRetBufferPtrs.add(envelopeBytesFromBytesErrBufPtr);
+        throw StateError('UniFFI rustbuffer_from_bytes failed with status $envelopeBytesFromBytesCode');
+      }
+      (argBuf + 4).ref.u64 = envelopeBytesRustBuffer.capacity;
+      (argBuf + 5).ref.u64 = envelopeBytesRustBuffer.len;
+      (argBuf + 6).ref.ptr = envelopeBytesRustBuffer.data.cast<ffi.Void>();
+      _peatNodeIngestInboundLiteFrameFfiBuffer(argBuf, returnBuf);
+      final int statusCode = (returnBuf + 3).ref.i8;
+      if (statusCode != _uniFfiRustCallStatusSuccess) {
+        final ffi.Pointer<_UniFfiRustBuffer> errBufPtr = calloc<_UniFfiRustBuffer>();
+        errBufPtr.ref
+          ..capacity = (returnBuf + 4).ref.u64
+          ..len = (returnBuf + 5).ref.u64
+          ..data = (returnBuf + 6).ref.ptr.cast<ffi.Uint8>();
+        rustRetBufferPtrs.add(errBufPtr);
+        if (statusCode == _uniFfiRustCallStatusError) {
+          final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          throw _uniffiLiftPeatErrorException(errBytes);
+        }
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
       retBufPtr.ref
@@ -6109,7 +6640,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
       retBufPtr.ref
@@ -6183,7 +6724,17 @@ class PeatFfiFfi {
           ..len = (returnBuf + 5).ref.u64
           ..data = (returnBuf + 6).ref.ptr.cast<ffi.Uint8>();
         rustRetBufferPtrs.add(errBufPtr);
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
       retBufPtr.ref
@@ -6253,7 +6804,17 @@ class PeatFfiFfi {
           ..len = (returnBuf + 3).ref.u64
           ..data = (returnBuf + 4).ref.ptr.cast<ffi.Uint8>();
         rustRetBufferPtrs.add(errBufPtr);
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       return (returnBuf + 0).ref.u32;
     } finally {
@@ -6276,6 +6837,261 @@ class PeatFfiFfi {
         calloc.free(freeStatusPtr);
         calloc.free(bufPtr);
       }
+      calloc.free(argBuf);
+      calloc.free(returnBuf);
+    }
+  }
+
+  // ── Shared water-supply Counter (CRDT-over-Automerge-over-BLE) ──────────
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeCrdtCounterValueFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_crdt_counter_value');
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeCrdtCounterIncrementFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_crdt_counter_increment');
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeCrdtCounterMergeFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_crdt_counter_merge');
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeCrdtCounterSnapshotFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_crdt_counter_snapshot');
+
+  int _crdtCloneHandle(int handle) {
+    final cloneStatusPtr = calloc<_UniFfiRustCallStatus>();
+    try {
+      cloneStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
+      cloneStatusPtr.ref.errorBuf
+        ..capacity = 0
+        ..len = 0
+        ..data = ffi.nullptr;
+      final h = _peatNodeClone(handle, cloneStatusPtr);
+      if (cloneStatusPtr.ref.code != _uniFfiRustCallStatusSuccess) {
+        throw StateError('UniFFI clone failed with status ${cloneStatusPtr.ref.code}');
+      }
+      return h;
+    } finally {
+      calloc.free(cloneStatusPtr);
+    }
+  }
+
+  // Checks a scalar-return status word at returnBuf[statusIdx]; throws on error.
+  void _crdtCheckStatus(ffi.Pointer<_UniFfiFfiBufferElement> returnBuf, int statusIdx,
+      List<ffi.Pointer<_UniFfiRustBuffer>> rustRetBufferPtrs) {
+    final int statusCode = (returnBuf + statusIdx).ref.i8;
+    if (statusCode == _uniFfiRustCallStatusSuccess) return;
+    final errBufPtr = calloc<_UniFfiRustBuffer>();
+    errBufPtr.ref
+      ..capacity = (returnBuf + statusIdx + 1).ref.u64
+      ..len = (returnBuf + statusIdx + 2).ref.u64
+      ..data = (returnBuf + statusIdx + 3).ref.ptr.cast<ffi.Uint8>();
+    rustRetBufferPtrs.add(errBufPtr);
+    if (statusCode == _uniFfiRustCallStatusError) {
+      final errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+      throw _uniffiLiftPeatErrorException(errBytes);
+    }
+    throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+  }
+
+  void _crdtFreeRetBuffers(List<ffi.Pointer<_UniFfiRustBuffer>> rustRetBufferPtrs) {
+    for (final bufPtr in rustRetBufferPtrs) {
+      if (bufPtr.ref.data == ffi.nullptr && bufPtr.ref.len == 0 && bufPtr.ref.capacity == 0) continue;
+      final freeStatusPtr = calloc<_UniFfiRustCallStatus>();
+      freeStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
+      freeStatusPtr.ref.errorBuf..capacity = 0..len = 0..data = ffi.nullptr;
+      _uniFfiRustBufferFree(bufPtr.ref, freeStatusPtr);
+      calloc.free(freeStatusPtr);
+      calloc.free(bufPtr);
+    }
+  }
+
+  /// Lower a Dart String into argBuf[idx..idx+2] as a UniFFI RustBuffer.
+  /// Returns the foreign byte pointer to free later.
+  ffi.Pointer<ffi.Uint8> _crdtLowerString(
+      ffi.Pointer<_UniFfiFfiBufferElement> argBuf, int idx, String s) {
+    final bytes = Uint8List.fromList(utf8.encode(s));
+    final ptr = bytes.isEmpty ? ffi.nullptr : calloc<ffi.Uint8>(bytes.length);
+    if (bytes.isNotEmpty) ptr.asTypedList(bytes.length).setAll(0, bytes);
+    final statusPtr = calloc<_UniFfiRustCallStatus>();
+    statusPtr.ref.code = _uniFfiRustCallStatusSuccess;
+    statusPtr.ref.errorBuf..capacity = 0..len = 0..data = ffi.nullptr;
+    final foreignPtr = calloc<_UniFfiForeignBytes>();
+    foreignPtr.ref..len = bytes.length..data = ptr;
+    final rb = _uniFfiRustBufferFromBytes(foreignPtr.ref, statusPtr);
+    calloc.free(foreignPtr);
+    calloc.free(statusPtr);
+    (argBuf + idx).ref.u64 = rb.capacity;
+    (argBuf + idx + 1).ref.u64 = rb.len;
+    (argBuf + idx + 2).ref.ptr = rb.data.cast<ffi.Void>();
+    return ptr;
+  }
+
+  int peatNodeInvokeCrdtCounterValue(int handle) {
+    final argBuf = calloc<_UniFfiFfiBufferElement>(1);
+    final returnBuf = calloc<_UniFfiFfiBufferElement>(5);
+    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
+    try {
+      (argBuf + 0).ref.u64 = _crdtCloneHandle(handle);
+      _peatNodeCrdtCounterValueFfiBuffer(argBuf, returnBuf);
+      _crdtCheckStatus(returnBuf, 1, rustRetBufferPtrs);
+      return (returnBuf + 0).ref.i64;
+    } finally {
+      _crdtFreeRetBuffers(rustRetBufferPtrs);
+      calloc.free(argBuf);
+      calloc.free(returnBuf);
+    }
+  }
+
+  String peatNodeInvokeCrdtCounterIncrement(int handle, int delta) {
+    final argBuf = calloc<_UniFfiFfiBufferElement>(2);
+    final returnBuf = calloc<_UniFfiFfiBufferElement>(7);
+    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
+    try {
+      (argBuf + 0).ref.u64 = _crdtCloneHandle(handle);
+      (argBuf + 1).ref.i64 = delta;
+      _peatNodeCrdtCounterIncrementFfiBuffer(argBuf, returnBuf);
+      _crdtCheckStatus(returnBuf, 3, rustRetBufferPtrs);
+      final retBufPtr = calloc<_UniFfiRustBuffer>();
+      retBufPtr.ref
+        ..capacity = (returnBuf + 0).ref.u64
+        ..len = (returnBuf + 1).ref.u64
+        ..data = (returnBuf + 2).ref.ptr.cast<ffi.Uint8>();
+      rustRetBufferPtrs.add(retBufPtr);
+      final retBytes = retBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(retBufPtr.ref.data.asTypedList(retBufPtr.ref.len));
+      return utf8.decode(retBytes); // bare String return = raw utf8 (no len prefix)
+    } finally {
+      _crdtFreeRetBuffers(rustRetBufferPtrs);
+      calloc.free(argBuf);
+      calloc.free(returnBuf);
+    }
+  }
+
+  int peatNodeInvokeCrdtCounterMerge(int handle, String hexDoc) {
+    final argBuf = calloc<_UniFfiFfiBufferElement>(4);
+    final returnBuf = calloc<_UniFfiFfiBufferElement>(5);
+    final foreignArgPtrs = <ffi.Pointer<ffi.Uint8>>[];
+    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
+    try {
+      (argBuf + 0).ref.u64 = _crdtCloneHandle(handle);
+      foreignArgPtrs.add(_crdtLowerString(argBuf, 1, hexDoc));
+      _peatNodeCrdtCounterMergeFfiBuffer(argBuf, returnBuf);
+      _crdtCheckStatus(returnBuf, 1, rustRetBufferPtrs);
+      return (returnBuf + 0).ref.i64;
+    } finally {
+      for (final ptr in foreignArgPtrs) {
+        if (ptr != ffi.nullptr) calloc.free(ptr);
+      }
+      _crdtFreeRetBuffers(rustRetBufferPtrs);
+      calloc.free(argBuf);
+      calloc.free(returnBuf);
+    }
+  }
+
+  String peatNodeInvokeCrdtCounterSnapshot(int handle) {
+    final argBuf = calloc<_UniFfiFfiBufferElement>(1);
+    final returnBuf = calloc<_UniFfiFfiBufferElement>(7);
+    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
+    try {
+      (argBuf + 0).ref.u64 = _crdtCloneHandle(handle);
+      _peatNodeCrdtCounterSnapshotFfiBuffer(argBuf, returnBuf);
+      _crdtCheckStatus(returnBuf, 3, rustRetBufferPtrs);
+      final retBufPtr = calloc<_UniFfiRustBuffer>();
+      retBufPtr.ref
+        ..capacity = (returnBuf + 0).ref.u64
+        ..len = (returnBuf + 1).ref.u64
+        ..data = (returnBuf + 2).ref.ptr.cast<ffi.Uint8>();
+      rustRetBufferPtrs.add(retBufPtr);
+      final retBytes = retBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(retBufPtr.ref.data.asTypedList(retBufPtr.ref.len));
+      return utf8.decode(retBytes); // bare String return = raw utf8 (no len prefix)
+    } finally {
+      _crdtFreeRetBuffers(rustRetBufferPtrs);
+      calloc.free(argBuf);
+      calloc.free(returnBuf);
+    }
+  }
+
+  // ── Generic CRDT KV documents (bare String returns = raw utf8) ──────────
+  String _crdtReadStringRet(ffi.Pointer<_UniFfiFfiBufferElement> returnBuf,
+      List<ffi.Pointer<_UniFfiRustBuffer>> rustRetBufferPtrs) {
+    final retBufPtr = calloc<_UniFfiRustBuffer>();
+    retBufPtr.ref
+      ..capacity = (returnBuf + 0).ref.u64
+      ..len = (returnBuf + 1).ref.u64
+      ..data = (returnBuf + 2).ref.ptr.cast<ffi.Uint8>();
+    rustRetBufferPtrs.add(retBufPtr);
+    final retBytes = retBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(retBufPtr.ref.data.asTypedList(retBufPtr.ref.len));
+    return utf8.decode(retBytes);
+  }
+
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeCrdtKvPutFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_crdt_kv_put');
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeCrdtKvAllFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_crdt_kv_all');
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeCrdtKvMergeFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_crdt_kv_merge');
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeCrdtKvSnapshotFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_crdt_kv_snapshot');
+
+  String peatNodeInvokeCrdtKvPut(int handle, String collection, String key, String value) {
+    final argBuf = calloc<_UniFfiFfiBufferElement>(10);
+    final returnBuf = calloc<_UniFfiFfiBufferElement>(7);
+    final foreignArgPtrs = <ffi.Pointer<ffi.Uint8>>[];
+    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
+    try {
+      (argBuf + 0).ref.u64 = _crdtCloneHandle(handle);
+      foreignArgPtrs.add(_crdtLowerString(argBuf, 1, collection));
+      foreignArgPtrs.add(_crdtLowerString(argBuf, 4, key));
+      foreignArgPtrs.add(_crdtLowerString(argBuf, 7, value));
+      _peatNodeCrdtKvPutFfiBuffer(argBuf, returnBuf);
+      _crdtCheckStatus(returnBuf, 3, rustRetBufferPtrs);
+      return _crdtReadStringRet(returnBuf, rustRetBufferPtrs);
+    } finally {
+      for (final ptr in foreignArgPtrs) { if (ptr != ffi.nullptr) calloc.free(ptr); }
+      _crdtFreeRetBuffers(rustRetBufferPtrs);
+      calloc.free(argBuf);
+      calloc.free(returnBuf);
+    }
+  }
+
+  String peatNodeInvokeCrdtKvAll(int handle, String collection) {
+    final argBuf = calloc<_UniFfiFfiBufferElement>(4);
+    final returnBuf = calloc<_UniFfiFfiBufferElement>(7);
+    final foreignArgPtrs = <ffi.Pointer<ffi.Uint8>>[];
+    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
+    try {
+      (argBuf + 0).ref.u64 = _crdtCloneHandle(handle);
+      foreignArgPtrs.add(_crdtLowerString(argBuf, 1, collection));
+      _peatNodeCrdtKvAllFfiBuffer(argBuf, returnBuf);
+      _crdtCheckStatus(returnBuf, 3, rustRetBufferPtrs);
+      return _crdtReadStringRet(returnBuf, rustRetBufferPtrs);
+    } finally {
+      for (final ptr in foreignArgPtrs) { if (ptr != ffi.nullptr) calloc.free(ptr); }
+      _crdtFreeRetBuffers(rustRetBufferPtrs);
+      calloc.free(argBuf);
+      calloc.free(returnBuf);
+    }
+  }
+
+  void peatNodeInvokeCrdtKvMerge(int handle, String collection, String hexDoc) {
+    final argBuf = calloc<_UniFfiFfiBufferElement>(7);
+    final returnBuf = calloc<_UniFfiFfiBufferElement>(5);
+    final foreignArgPtrs = <ffi.Pointer<ffi.Uint8>>[];
+    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
+    try {
+      (argBuf + 0).ref.u64 = _crdtCloneHandle(handle);
+      foreignArgPtrs.add(_crdtLowerString(argBuf, 1, collection));
+      foreignArgPtrs.add(_crdtLowerString(argBuf, 4, hexDoc));
+      _peatNodeCrdtKvMergeFfiBuffer(argBuf, returnBuf);
+      _crdtCheckStatus(returnBuf, 1, rustRetBufferPtrs); // void: status at [1]
+    } finally {
+      for (final ptr in foreignArgPtrs) { if (ptr != ffi.nullptr) calloc.free(ptr); }
+      _crdtFreeRetBuffers(rustRetBufferPtrs);
+      calloc.free(argBuf);
+      calloc.free(returnBuf);
+    }
+  }
+
+  String peatNodeInvokeCrdtKvSnapshot(int handle, String collection) {
+    final argBuf = calloc<_UniFfiFfiBufferElement>(4);
+    final returnBuf = calloc<_UniFfiFfiBufferElement>(7);
+    final foreignArgPtrs = <ffi.Pointer<ffi.Uint8>>[];
+    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
+    try {
+      (argBuf + 0).ref.u64 = _crdtCloneHandle(handle);
+      foreignArgPtrs.add(_crdtLowerString(argBuf, 1, collection));
+      _peatNodeCrdtKvSnapshotFfiBuffer(argBuf, returnBuf);
+      _crdtCheckStatus(returnBuf, 3, rustRetBufferPtrs);
+      return _crdtReadStringRet(returnBuf, rustRetBufferPtrs);
+    } finally {
+      for (final ptr in foreignArgPtrs) { if (ptr != ffi.nullptr) calloc.free(ptr); }
+      _crdtFreeRetBuffers(rustRetBufferPtrs);
       calloc.free(argBuf);
       calloc.free(returnBuf);
     }
@@ -6351,7 +7167,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
       retBufPtr.ref
@@ -6421,7 +7247,17 @@ class PeatFfiFfi {
           ..len = (returnBuf + 5).ref.u64
           ..data = (returnBuf + 6).ref.ptr.cast<ffi.Uint8>();
         rustRetBufferPtrs.add(errBufPtr);
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
       retBufPtr.ref
@@ -6530,7 +7366,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       return;
     } finally {
@@ -6628,7 +7474,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       return;
     } finally {
@@ -6788,7 +7644,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       return;
     } finally {
@@ -6886,7 +7752,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       return;
     } finally {
@@ -6984,7 +7860,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       return;
     } finally {
@@ -7082,7 +7968,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       return;
     } finally {
@@ -7149,7 +8045,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       return;
     } finally {
@@ -7216,7 +8122,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       return;
     } finally {
@@ -7283,7 +8199,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       return;
     } finally {
@@ -7346,7 +8272,17 @@ class PeatFfiFfi {
           ..len = (returnBuf + 2).ref.u64
           ..data = (returnBuf + 3).ref.ptr.cast<ffi.Uint8>();
         rustRetBufferPtrs.add(errBufPtr);
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       return;
     } finally {
@@ -7413,7 +8349,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       return;
     } finally {
@@ -7481,7 +8427,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       return SubscriptionHandle._(this, (returnBuf + 0).ref.u64);
     } finally {
@@ -7548,7 +8504,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       return SubscriptionHandle._(this, (returnBuf + 0).ref.u64);
     } finally {
@@ -7677,7 +8643,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       return;
     } finally {
@@ -7744,7 +8720,17 @@ class PeatFfiFfi {
           final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
           throw _uniffiLiftPeatErrorException(errBytes);
         }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
       retBufPtr.ref
@@ -7828,7 +8814,17 @@ class PeatFfiFfi {
           ..len = (returnBuf + 2).ref.u64
           ..data = (returnBuf + 3).ref.ptr.cast<ffi.Uint8>();
         rustRetBufferPtrs.add(errBufPtr);
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       return;
     } finally {
@@ -7891,7 +8887,17 @@ class PeatFfiFfi {
           ..len = (returnBuf + 3).ref.u64
           ..data = (returnBuf + 4).ref.ptr.cast<ffi.Uint8>();
         rustRetBufferPtrs.add(errBufPtr);
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       return (returnBuf + 0).ref.i8 == 1;
     } finally {
@@ -7954,7 +8960,17 @@ class PeatFfiFfi {
           ..len = (returnBuf + 5).ref.u64
           ..data = (returnBuf + 6).ref.ptr.cast<ffi.Uint8>();
         rustRetBufferPtrs.add(errBufPtr);
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode');
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
       }
       final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
       retBufPtr.ref
@@ -8212,6 +9228,24 @@ final class PeatNode {
     return _ffi.peatNodeInvokeIngestInboundFrame(_handle, collection, postcardBytes);
   }
 
+  /// Feed a BLE inbound frame on the universal-Document ("ble-lite") codec —
+  /// the counterpart of [ingestInboundFrame] for raw collections the typed
+  /// translator declines (e.g. the demo counter, nodes/cells/mission/commands).
+  /// `envelopeBytes` is the lite-bridge envelope peat-btle relayed (0xAF path).
+  /// Returns the published doc ID, or null for an unknown collection.
+  String? ingestInboundLiteFrame(String collection, Uint8List envelopeBytes) {
+    _ensureOpen();
+    return _ffi.peatNodeInvokeIngestInboundLiteFrame(_handle, collection, envelopeBytes);
+  }
+
+  /// Publish a JSON document through the node layer so it reaches the ADR-059
+  /// fan-out (BLE/Wi-Fi), unlike [putDocument] which writes to storage only.
+  /// The JSON's `id` field, if present, becomes the doc id (returned).
+  String publishDocument(String collection, String json) {
+    _ensureOpen();
+    return _ffi.peatNodeInvokePublishDocument(_handle, collection, json);
+  }
+
   /// List all document IDs in a collection
   List<String> listDocuments(String collection) {
     _ensureOpen();
@@ -8228,6 +9262,58 @@ final class PeatNode {
   int peerCount() {
     _ensureOpen();
     return _ffi.peatNodeInvokePeerCount(_handle);
+  }
+
+  // ── Shared water-supply Counter (CRDT-over-Automerge-over-BLE) ──────────
+  /// Current merged value of the shared water-supply Counter.
+  int crdtCounterValue() {
+    _ensureOpen();
+    return _ffi.peatNodeInvokeCrdtCounterValue(_handle);
+  }
+
+  /// Apply [delta] liters to the shared Counter; returns the doc save() bytes
+  /// (hex) to broadcast to peers.
+  String crdtCounterIncrement(int delta) {
+    _ensureOpen();
+    return _ffi.peatNodeInvokeCrdtCounterIncrement(_handle, delta);
+  }
+
+  /// Merge an inbound peer doc (hex); returns the new value. Safe with
+  /// duplicate / stale / relayed / out-of-order input.
+  int crdtCounterMerge(String hexDoc) {
+    _ensureOpen();
+    return _ffi.peatNodeInvokeCrdtCounterMerge(_handle, hexDoc);
+  }
+
+  /// Current doc save() bytes (hex), for periodic re-broadcast (catch-up).
+  String crdtCounterSnapshot() {
+    _ensureOpen();
+    return _ffi.peatNodeInvokeCrdtCounterSnapshot(_handle);
+  }
+
+  // ── Generic CRDT KV documents ───────────────────────────────────────────
+  /// Upsert key=value_json in collection; returns hex doc bytes to broadcast.
+  String crdtKvPut(String collection, String key, String valueJson) {
+    _ensureOpen();
+    return _ffi.peatNodeInvokeCrdtKvPut(_handle, collection, key, valueJson);
+  }
+
+  /// All records in collection as a JSON object {key: value}.
+  String crdtKvAll(String collection) {
+    _ensureOpen();
+    return _ffi.peatNodeInvokeCrdtKvAll(_handle, collection);
+  }
+
+  /// Merge an inbound peer doc (hex) into collection.
+  void crdtKvMerge(String collection, String hexDoc) {
+    _ensureOpen();
+    _ffi.peatNodeInvokeCrdtKvMerge(_handle, collection, hexDoc);
+  }
+
+  /// Current hex doc bytes of collection (periodic re-broadcast).
+  String crdtKvSnapshot(String collection) {
+    _ensureOpen();
+    return _ffi.peatNodeInvokeCrdtKvSnapshot(_handle, collection);
   }
 
   /// ADR-032 §Amendment A — unified per-peer transport state.
