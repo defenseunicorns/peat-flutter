@@ -114,3 +114,34 @@ Mutex, persisted to `storage_path/water.automerge`:
 - **"yours" semantic** — local tally only; the shared model has one pool total.
 - **Coexistence with the lite path** — the counter moves OFF the `demo`
   lite collection onto the `crdt`/`supply` tag, so the two don't interfere.
+
+## Known limitation: unbounded growth of the `commands` doc (demoware)
+
+The pattern above generalized (later phases) to per-collection CRDT-KV docs for
+`holdings`, `nodes`, `mission`, and **`commands`**. Most are naturally bounded —
+`holdings`/`nodes` are keyed by callsign (one entry per node), `mission` by a
+single `objective` key. **`commands` is the exception:** every resupply request
+is a new key (`req-<timestamp>`), so the doc only ever grows. And because
+Automerge **retains change history**, deleting a completed command does NOT
+shrink `save()` — the bytes keep climbing, which over a long session means more
+BLE fragments and slower/less-reliable sync.
+
+**For the demo this is acceptable and intentionally unresolved:** a session has a
+handful of commands, and the build-id auto-wipe resets the store on each
+redeploy. We are NOT fixing it for demoware.
+
+**If/when it needs bounding** (e.g. a long-lived deployment), the options, in
+order of robustness:
+
+1. **Deterministic TTL + doc rebuild** — every node drops commands older than a
+   TTL keyed on the command's own `created_at`, so all nodes prune the *same*
+   entries and the doc converges (brief resurrection window until the last
+   holder prunes). Since delete doesn't shrink the doc, the prune must *rebuild*
+   it — a fresh `Automerge` doc containing only the surviving entries — which
+   needs a small native `crdt_kv_rebuild(collection, entries)` primitive in
+   peat-ffi (use a fixed actor so rebuilt replicas still merge cleanly).
+2. **Cap by count** — keep the N most-recent commands (same rebuild mechanism).
+3. **App-layer filter** — cheapest, but only hides old commands in the UI; it
+   does NOT shrink the doc or the bytes broadcast over BLE.
+
+Option 1 is the "right" answer; all three are out of scope for the demo.
