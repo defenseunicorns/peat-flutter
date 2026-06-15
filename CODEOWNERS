@@ -1,0 +1,6 @@
+# This repository is owned by the @defenseunicorns/peat team.
+* @defenseunicorns/peat
+
+# Additional privileged files
+/CODEOWNERS @jeff-mccoy @daveworth
+/LICENS* @jeff-mccoy @austenbryan

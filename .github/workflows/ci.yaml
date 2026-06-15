@@ -1,0 +1,80 @@
+# Copyright 2026 Defense Unicorns
+# SPDX-License-Identifier: Apache-2.0
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Format & analyze
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Gate on the published package sources (matches `just analyze`).
+      - name: Analyze package
+        run: dart analyze lib/
+
+      # The example app carries pre-existing lints; report them but don't gate.
+      - name: Analyze example (informational)
+        continue-on-error: true
+        run: |
+          cd example
+          flutter pub get
+          flutter analyze
+
+      # Formatting is reported but not enforced as a gate yet — the existing
+      # tree predates a format pass. Run `dart format .` before enabling
+      # --set-exit-if-changed here.
+      - name: Check formatting (informational)
+        continue-on-error: true
+        run: dart format --output=none --set-exit-if-changed .
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # The plugin's pure-Dart unit tests run on the host. Tests that exercise
+      # the native peat-ffi library require the compiled artifact and are run in
+      # platform-specific CI; see CONTRIBUTING.md.
+      - name: Run tests
+        run: |
+          if [ -d test ]; then
+            flutter test
+          else
+            echo "No test/ directory yet — skipping. See CONTRIBUTING.md."
+          fi

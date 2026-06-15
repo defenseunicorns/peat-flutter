@@ -1,3 +1,6 @@
+// Copyright 2026 Defense Unicorns
+// SPDX-License-Identifier: Apache-2.0
+
 import 'dart:ffi';
 import 'dart:io';
 

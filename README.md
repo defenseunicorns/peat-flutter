@@ -1,88 +1,125 @@
 # peat_flutter
 
-A new Flutter FFI plugin project.
+A Flutter FFI plugin that brings the **peat** peer-to-peer mesh protocol to
+mobile and desktop apps. It wraps the peat Rust stack — `peat-schema`,
+`peat-protocol`, `peat-mesh`, and `peat-btle` — and exposes it to Dart through
+`peat-ffi` (UniFFI), so a Flutter app can join a local mesh, discover peers, and
+sync CRDT (Automerge) documents directly between devices.
 
-## Getting Started
+peat is designed for **fully offline / disconnected environments**: there is no
+central server. Nodes find each other on the local network (mDNS over UDP
+multicast) or over the short-range Bluetooth LE transport (`peat-btle`) and
+converge on shared state device-to-device.
 
-This project is a starting point for a Flutter
-[FFI plugin](https://flutter.dev/to/ffi-package),
-a specialized package that includes native code directly invoked with Dart FFI.
+## Purpose
 
-## Project structure
+This repository is the Flutter/Dart binding layer for peat. Its job is to:
 
-This template uses the following structure:
+- Provide a Dart facade (`PeatFlutterNode`) over the UniFFI-generated `peat-ffi`
+  bindings — subscribing to document changes, publishing/reading proto-typed
+  messages, and driving inbound/outbound frame exchange.
+- Bundle the compiled native `peat-ffi` library for each target platform.
 
-* `src`: Contains the native source code, and a CmakeFile.txt file for building
-  that source code into a dynamic library.
+## Supported platforms
 
-* `lib`: Contains the Dart code that defines the API of the plugin, and which
-  calls into the native code using `dart:ffi`.
+Android, iOS, macOS, Linux, and Windows (all via FFI).
 
-* platform folders (`android`, `ios`, `windows`, etc.): Contains the build files
-  for building and bundling the native code library with the platform application.
+## Constraints & design notes
 
-## Building and bundling native code
+This plugin was built under a few deliberate constraints worth knowing before
+you build or contribute:
 
-The `pubspec.yaml` specifies FFI plugins as follows:
+- **Native dependency.** The plugin links against `peat-ffi`, a Rust library
+  from the [`peat`](https://github.com/defenseunicorns) workspace. Building the
+  native library from source requires a checkout of that workspace as a sibling
+  directory (default `../peat`, override with `PEAT_WORKSPACE_DIR`).
+- **Generated sources are committed.** `lib/src/generated/` (FFI bindings) and
+  `lib/src/proto/` (proto stubs) are committed so that consumers can build
+  without the Rust / UniFFI / `protoc` toolchain. They only need to be
+  regenerated when the native surface changes.
+- **Bindings are maintained by hand.** The `uniffi-bindgen-dart` generator is
+  not currently publicly available, so `lib/src/generated/peat_ffi.dart` is
+  maintained manually. `just check-bindings` verifies it against the compiled
+  library. See the [`justfile`](./justfile) for the specific invariants.
+- **Pre-1.0.** The API surface is still evolving (current version `0.0.1`).
 
-```yaml
-  plugin:
-    platforms:
-      some_platform:
-        ffiPlugin: true
+## Getting started
+
+Add the plugin to a Flutter app and drive a node from Dart:
+
+```dart
+import 'package:peat_flutter/peat_flutter.dart';
+
+final node = await PeatFlutterNode.create(/* ... */);
+final sub = node.subscribeChanges((doc) {
+  // react to synced document state
+});
 ```
 
-This configuration invokes the native build for the various target platforms
-and bundles the binaries in Flutter applications using these FFI plugins.
+See [`example/lib/main.dart`](./example/lib/main.dart) for a complete demo app
+(a peer-to-peer "water counter" that sums per-node state across a mesh cell).
 
-This can be combined with dartPluginClass, such as when FFI is used for the
-implementation of one platform in a federated plugin:
+### Run the example
 
-```yaml
-  plugin:
-    implements: some_other_plugin
-    platforms:
-      some_platform:
-        dartPluginClass: SomeClass
-        ffiPlugin: true
+```bash
+cd example
+flutter pub get
+flutter run            # pick a connected device or desktop target
 ```
 
-A plugin can have both FFI and method channels:
+> The example bundles a prebuilt `peat-ffi` for the target platform. To build
+> the native library yourself, see [Building native code](#building-native-code).
 
-```yaml
-  plugin:
-    platforms:
-      some_platform:
-        pluginClass: SomeName
-        ffiPlugin: true
+## Developer tasks
+
+Tasks are driven by [`just`](https://github.com/casey/just) (see the
+[`justfile`](./justfile)):
+
+```bash
+just analyze          # dart analyze lib/
+just gen-proto        # regenerate Dart proto stubs from peat-schema
+just check-bindings   # verify the generated FFI bindings against libpeat_ffi
+just regen            # gen-proto + check-bindings
+just build-host       # build peat-ffi for the native host
+just build-android    # build peat-ffi for all Android ABIs (needs cargo-ndk + NDK)
+just build-ios        # build PeatFFI.xcframework (macOS host only)
+just build-macos      # build the universal macOS dylib (macOS host only)
 ```
 
-The native build systems that are invoked by FFI (and method channel) plugins are:
+### Test & lint
 
-* For Android: Gradle, which invokes the Android NDK for native builds.
-  * See the documentation in android/build.gradle.
-* For iOS and MacOS: Xcode, via CocoaPods.
-  * See the documentation in ios/peat_flutter.podspec.
-  * See the documentation in macos/peat_flutter.podspec.
-* For Linux and Windows: CMake.
-  * See the documentation in linux/CMakeLists.txt.
-  * See the documentation in windows/CMakeLists.txt.
+```bash
+dart analyze lib/    # static analysis of the package (the CI gate; == just analyze)
+flutter test         # unit tests (when present)
+dart format .        # apply formatting (reported by CI, not yet gated)
+```
 
-## Binding to native code
+CI runs these in [`.github/workflows`](./.github/workflows). The package
+analysis (`dart analyze lib/`) gates merges; the example app's analysis and
+formatting are reported informationally while the tree predates a format pass.
 
-To use the native code, bindings in Dart are needed.
-To avoid writing these by hand, they are generated from the header file
-(`src/peat_flutter.h`) by `package:ffigen`.
-Regenerate the bindings by running `dart run ffigen --config ffigen.yaml`.
+## Building native code
 
-## Invoking native code
+The `pubspec.yaml` marks this as an FFI plugin for each platform, which invokes
+the native build and bundles the binaries:
 
-Very short-running native functions can be directly invoked from any isolate.
-For example, see `sum` in `lib/peat_flutter.dart`.
+- **Android:** Gradle invokes the Android NDK; `cargo-ndk` cross-compiles
+  `peat-ffi`. See `android/build.gradle`.
+- **iOS / macOS:** `ios/build-rust.sh` / `macos/build-rust.sh` produce a
+  `PeatFFI.xcframework` / universal dylib that the podspecs wire in.
+- **Linux / Windows:** `src/CMakeLists.txt` drives `cargo` at CMake build time.
 
-Longer-running functions should be invoked on a helper isolate to avoid
-dropping frames in Flutter applications.
-For example, see `sumAsync` in `lib/peat_flutter.dart`.
+### Regenerating bindings
+
+FFI bindings in Dart are generated from the native header by
+[`package:ffigen`](https://pub.dev/packages/ffigen):
+
+```bash
+dart run ffigen --config ffigen.yaml
+```
+
+Then reconcile any manual fixes per the notes in the [`justfile`](./justfile) and
+run `just check-bindings`.
 
 ## iOS: multicast entitlement (required for direct device↔device discovery)
 
@@ -132,9 +169,27 @@ before Automatic signing will include it — otherwise device builds fail with
 `CODE_SIGN_ENTITLEMENTS` on the Runner target so device builds keep signing
 (macOS-bridged sync still works). Restore it after approval.
 
-## Flutter help
+## Project structure
 
-For help getting started with Flutter, view our
-[online documentation](https://docs.flutter.dev), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- `lib/` — the Dart API of the plugin (`peat_flutter.dart`, `src/peat_node.dart`)
+  and committed generated sources (`src/generated/`, `src/proto/`).
+- `src/` — `CMakeLists.txt` driving the native build for Linux/Windows.
+- platform folders (`android`, `ios`, `macos`, `linux`, `windows`) — native
+  build/bundling for each target.
+- `example/` — a runnable demo app.
+- `docs/` — additional documentation, including [ADRs](./docs/adr/README.md).
 
+## Contributing
+
+Contributions are welcome! Please read [CONTRIBUTING.md](./CONTRIBUTING.md) and
+our [Code of Conduct](./CODE_OF_CONDUCT.md). To report a security issue, see
+[SECURITY.md](./SECURITY.md).
+
+## License
+
+Licensed under the [Apache License, Version 2.0](./LICENSE).
+
+```
+Copyright 2026 Defense Unicorns
+SPDX-License-Identifier: Apache-2.0
+```

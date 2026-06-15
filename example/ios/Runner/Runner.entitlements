@@ -17,10 +17,10 @@
 	  includes it. Until granted, signed builds will fail with a missing-
 	  entitlement error.
 
-	  TEMPORARILY DISABLED (2026-06-11) so device builds sign for the BLE
-	  demo (BLE needs no entitlement; the mDNS path that needs this is
-	  blocked anyway pending Apple approval). RESTORE the key below once
-	  Apple grants the Multicast Networking Entitlement for this App ID.
+	  DISABLED: verified 2026-06-14 the App ID still lacks this capability
+	  ("Entitlement com.apple.developer.networking.multicast requires approval
+	  from Apple"), so enabling it breaks device signing. Kept off so the BLE
+	  demo device-builds; RESTORE once Apple grants it for the App ID.
 	-->
 	<!-- <key>com.apple.developer.networking.multicast</key><true/> -->
 </dict>
