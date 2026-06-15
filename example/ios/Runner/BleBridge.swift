@@ -38,6 +38,15 @@ final class PeatBLEManager: NSObject, CBCentralManagerDelegate, CBPeripheralDele
     private var subscribedCentrals: [CBCentral] = []          // we are Peripheral
     private var docCharacteristic: CBMutableCharacteristic?
     private var serviceAdded = false
+    // Outbound notify backpressure queue (Peripheral role). iOS's
+    // updateValue(...) returns false when the notify transmit queue is full and
+    // SILENTLY DROPS the value; we hold it here and retry on
+    // peripheralManagerIsReady(toUpdateSubscribers:). This is the proper flow
+    // control that lets Dart fire all fragments at once (no 60ms pacing hack).
+    // Bounded: oldest frames are dropped if a stuck subscriber backs it up — the
+    // 4s snapshot gossip re-sends the whole doc, so a dropped fragment recovers.
+    private var notifyQueue: [Data] = []
+    private static let maxNotifyQueue = 256
 
     var localDeviceName = "PEAT_peatwtr-00000000"
 
@@ -73,6 +82,7 @@ final class PeatBLEManager: NSObject, CBCentralManagerDelegate, CBPeripheralDele
         if central?.isScanning == true { central.stopScan() }
         for (_, p) in connected { central.cancelPeripheralConnection(p) }
         connected.removeAll(); discovered.removeAll(); subscribedCentrals.removeAll()
+        notifyQueue.removeAll()
         if peripheral?.isAdvertising == true { peripheral.stopAdvertising() }
         peripheral?.removeAllServices()
         serviceAdded = false
@@ -154,6 +164,7 @@ final class PeatBLEManager: NSObject, CBCentralManagerDelegate, CBPeripheralDele
         let id = p.identifier.uuidString
         p.delegate = self
         connected[id] = p
+        discovered.removeValue(forKey: id) // `connected` now holds the strong ref
         p.discoverServices([PEAT_SERVICE_UUID_128])
         onPeerConnected?(id)
     }
@@ -166,6 +177,7 @@ final class PeatBLEManager: NSObject, CBCentralManagerDelegate, CBPeripheralDele
     }
 
     func centralManager(_ cm: CBCentralManager, didFailToConnect p: CBPeripheral, error: Error?) {
+        discovered.removeValue(forKey: p.identifier.uuidString) // free the connect-phase ref
         blog("didFailToConnect \(p.identifier.uuidString): \(error?.localizedDescription ?? "?")")
     }
 
@@ -189,15 +201,41 @@ final class PeatBLEManager: NSObject, CBCentralManagerDelegate, CBPeripheralDele
     // ----- Outbound: send to every connected peer (both roles) -----
 
     func sendData(_ data: Data) {
-        if let char = docCharacteristic, !subscribedCentrals.isEmpty {
-            _ = peripheral.updateValue(data, for: char, onSubscribedCentrals: nil)
+        // Peripheral (notify) path: enqueue + drain honoring backpressure so a
+        // full transmit queue never silently drops a fragment (see notifyQueue).
+        if docCharacteristic != nil, !subscribedCentrals.isEmpty {
+            notifyQueue.append(data)
+            if notifyQueue.count > PeatBLEManager.maxNotifyQueue {
+                notifyQueue.removeFirst(notifyQueue.count - PeatBLEManager.maxNotifyQueue)
+            }
+            drainNotifyQueue()
         }
+        // Central (write) path: .withResponse writes are queued + flow-controlled
+        // by CoreBluetooth itself, so they don't drop — send directly.
         for (_, p) in connected {
             guard let s = p.services?.first(where: { $0.uuid == PEAT_SERVICE_UUID_128 }),
                   let c = s.characteristics?.first(where: { $0.uuid == PEAT_DOC_CHAR_UUID }) else { continue }
             let kind: CBCharacteristicWriteType = c.properties.contains(.write) ? .withResponse : .withoutResponse
             p.writeValue(data, for: c, type: kind)
         }
+    }
+
+    // Push as many queued notifications as iOS will accept. updateValue returns
+    // false when the transmit queue is full; we stop and resume from
+    // peripheralManagerIsReady(toUpdateSubscribers:).
+    private func drainNotifyQueue() {
+        guard let char = docCharacteristic else { notifyQueue.removeAll(); return }
+        while let next = notifyQueue.first {
+            if peripheral.updateValue(next, for: char, onSubscribedCentrals: nil) {
+                notifyQueue.removeFirst()       // accepted into the transmit queue
+            } else {
+                break                            // full — resume on ...IsReady...
+            }
+        }
+    }
+
+    func peripheralManagerIsReady(toUpdateSubscribers pm: CBPeripheralManager) {
+        drainNotifyQueue()
     }
 }
 

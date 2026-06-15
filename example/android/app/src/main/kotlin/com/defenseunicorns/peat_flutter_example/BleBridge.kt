@@ -86,7 +86,8 @@ class BleBridge(private val context: Context) : PeatMeshListener {
             peatBtle?.let { btle ->
                 try {
                     btle.broadcastBytes(wrap(transportId, collection, bytes))
-                    Log.d(TAG, "outbound [$transportId/$collection] ${bytes.size}B")
+                    if (Log.isLoggable(TAG, Log.DEBUG))
+                        Log.d(TAG, "outbound [$transportId/$collection] ${bytes.size}B")
                 } catch (t: Throwable) {
                     Log.e(TAG, "broadcastBytes failed", t)
                 }
@@ -235,7 +236,8 @@ class BleBridge(private val context: Context) : PeatMeshListener {
     // ---------- PeatMeshListener ----------
 
     override fun onMeshUpdated(peers: List<PeatPeer>) {
-        Log.d(TAG, "mesh updated: ${peers.size} peer(s)")
+        if (Log.isLoggable(TAG, Log.DEBUG))
+            Log.d(TAG, "mesh updated: ${peers.size} peer(s)")
     }
 
     override fun onPeerEvent(peer: PeatPeer, eventType: PeatEventType) { /* unused */ }
@@ -279,10 +281,12 @@ class BleBridge(private val context: Context) : PeatMeshListener {
                 PeatJni.ingestCrdtFrameJni(handle, collection, full)
             } else if (transport == TRANSPORT_LITE) {
                 val id = PeatJni.ingestInboundLiteFrameJni(handle, collection, frame)
-                Log.d(TAG, "inbound [lite/$collection] ${frame.size}B -> ${id ?: "no-op"}")
+                if (Log.isLoggable(TAG, Log.DEBUG))
+                    Log.d(TAG, "inbound [lite/$collection] ${frame.size}B -> ${id ?: "no-op"}")
             } else {
                 val id = PeatJni.ingestInboundFrameJni(handle, collection, frame)
-                Log.d(TAG, "inbound [typed/$collection] ${frame.size}B -> ${id ?: "no-op"}")
+                if (Log.isLoggable(TAG, Log.DEBUG))
+                    Log.d(TAG, "inbound [typed/$collection] ${frame.size}B -> ${id ?: "no-op"}")
             }
         } catch (t: Throwable) {
             Log.e(TAG, "ingest failed (transport=$transport)", t)

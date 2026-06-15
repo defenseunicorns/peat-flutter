@@ -185,11 +185,6 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   final Map<String, int> _nodeHbSeen = {};
   final Map<String, int> _nodeSeenLocal = {};
 
-  // Shared water supply is ONE Automerge Counter doc (CRDT-over-Automerge-over-
-  // BLE). Its save() bytes (hex) ride in a single shared doc id in the `demo`
-  // collection — reusing the existing BLE doc-sync transport — and merge
-  // natively on receipt (commutative/idempotent). See docs/crdt-counter-over-ble.md.
-  static const _supplyDocId = 'supply'; // legacy (standalone counter) — unused
   // Water supply is a PER-NODE holdings CRDT document: collection 'holdings',
   // keyed by callsign, value = that node's liters count. "yours" = my entry;
   // "total" = the SUM of all entries. Both derive from synced/persisted CRDT
@@ -209,9 +204,6 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   // This device's own cumulative contribution, for the "yours" display (local
   // tally only — the pool total is the CRDT value).
   int _myLiters = 0;
-  bool _counterDirty = false; // retained for the UI chip; unused by the CRDT path
-  // Friendly name for each peer's counter slot (legacy; kept for the roster).
-  final Map<String, String> _peerNames = {};
   int get _counterValue => _crdtTotal;
   Timer? _counterTimer;
   StreamSubscription<DocumentChange>? _changeSub;
@@ -224,6 +216,11 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   // fragments; we collect them here keyed by "collection:msgId" until the full
   // set arrives, then merge. Idempotent: re-sent/duplicate fragments are fine.
   final Map<String, Map<int, Uint8List>> _crdtReasm = {};
+  // Last-touch wall-clock (ms) per partial set, so stale sets (sender died
+  // mid-fragment, or a dropped fragment never arrives) can be evicted by AGE
+  // instead of nuking the whole buffer on a size threshold — see _crdtReassemble.
+  final Map<String, int> _crdtReasmTs = {};
+  static const int _kCrdtReasmTtlMs = 15000;
 
   // Presence over the CRDT relay (the only transport that reliably carries
   // iPad<->Android both ways — the connection-based/lite path is asymmetric).
@@ -850,10 +847,10 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       setState(() {
         _crdtTotal = 0;
         _myLiters = 0;
-        _counterDirty = false;
-        _peerNames.clear();
         _changeLog.clear();
         _contentHashes.clear();
+        _crdtReasm.clear();
+        _crdtReasmTs.clear();
         _claimedCommandIds.clear();
         _commands = [];
         _activeCell = null;
@@ -1067,28 +1064,20 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       env.setRange(h + _kCrdtHdr, env.length, payload.sublist(start, end));
       envelopes.add(env);
     }
-    _sendCrdtFrames(envelopes); // fire-and-forget (paces iOS internally)
+    _sendCrdtFrames(envelopes);
   }
 
-  // Send the fragment envelopes over the native BLE bridge. On iOS we AWAIT
-  // each bleTx and space fragments apart: CoreBluetooth silently drops rapid
-  // back-to-back broadcasts, so a multi-fragment frame (nodes/commands) loses
-  // pieces and never reassembles on peers — while a single-fragment frame
-  // (holdings) always lands. Pacing makes every fragment go out. Android's
-  // bridge queues fine, so it fires them without spacing.
-  Future<void> _sendCrdtFrames(List<Uint8List> envelopes) async {
-    for (int i = 0; i < envelopes.length; i++) {
-      if (Platform.isAndroid) {
-        _bleChannel
-            .invokeMethod('crdtTx', {'bytes': envelopes[i]}).catchError((_) => null);
-      } else {
-        await _bleChannel
-            .invokeMethod('bleTx', envelopes[i])
-            .catchError((_) => null);
-        if (envelopes.length > 1 && i < envelopes.length - 1) {
-          await Future.delayed(const Duration(milliseconds: 60));
-        }
-      }
+  // Send the fragment envelopes over the native BLE bridge. Both platforms now
+  // fire every fragment without artificial spacing: the native bridges apply
+  // proper flow control — Android queues, and the iOS bridge enqueues notify
+  // writes and drains them on peripheralManagerIsReady (see BleBridge.swift
+  // notifyQueue), which replaced the old 60ms-per-fragment iOS pacing hack that
+  // worked around CoreBluetooth silently dropping rapid back-to-back writes.
+  void _sendCrdtFrames(List<Uint8List> envelopes) {
+    final String method = Platform.isAndroid ? 'crdtTx' : 'bleTx';
+    for (final env in envelopes) {
+      final Object arg = Platform.isAndroid ? {'bytes': env} : env;
+      _bleChannel.invokeMethod(method, arg).catchError((_) => null);
     }
   }
 
@@ -1099,7 +1088,19 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       String coll, int msgId, int fragIdx, int fragCount, Uint8List chunk) {
     if (fragCount <= 1) return utf8.decode(chunk); // single fragment, fast path
     final key = '$coll:$msgId';
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    // Evict partial sets older than the TTL: a sender that died mid-fragment, or
+    // a set missing a dropped fragment, would otherwise leak forever. Age-based
+    // (not size-based) so a healthy in-flight set is never collateral.
+    if (_crdtReasmTs.isNotEmpty) {
+      _crdtReasmTs.removeWhere((k, t) {
+        if (nowMs - t <= _kCrdtReasmTtlMs) return false;
+        _crdtReasm.remove(k);
+        return true;
+      });
+    }
     final parts = _crdtReasm.putIfAbsent(key, () => {});
+    _crdtReasmTs[key] = nowMs;
     parts[fragIdx] = chunk;
     if (parts.length < fragCount) return null;
     final buf = BytesBuilder();
@@ -1109,8 +1110,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       buf.add(p);
     }
     _crdtReasm.remove(key);
-    // Bound the buffer: drop any stale partials if it grows unexpectedly.
-    if (_crdtReasm.length > 32) _crdtReasm.clear();
+    _crdtReasmTs.remove(key);
     return utf8.decode(buf.toBytes());
   }
 
@@ -1867,11 +1867,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
             final Uint8List chunk = Uint8List.sublistView(frame, _kCrdtHdr);
             final hex = _crdtReassemble(coll, msgId, fragIdx, fragCount, chunk);
             if (hex == null) return; // incomplete — wait for more fragments
-            if (coll == _supplyDocId) {
-              node.crdtCounterMerge(hex);
-            } else {
-              node.crdtKvMerge(coll, hex);
-            }
+            node.crdtKvMerge(coll, hex);
           } else if (transport == 1) {
             node.ingestInboundLiteFrame(coll, frame);
           } else {
@@ -1999,7 +1995,6 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       _counterTimer = null;
       _peers = [];
       _syncStats = null;
-      _peerNames.clear();
       _missionDays = 0;
       _missionSetBy = null;
       _activeCell = null;
@@ -2206,9 +2201,6 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
             // ---- shared CRDT counter (always visible) ----
             const SizedBox(height: 10),
             Card(
-              color: _counterDirty
-                  ? theme.colorScheme.tertiaryContainer.withOpacity(0.4)
-                  : null,
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 14),
                 child: Column(
@@ -2225,13 +2217,6 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
                         if (!hasNode)
                           Chip(
                             label: const Text('✈ offline'),
-                            labelStyle: theme.textTheme.labelSmall,
-                            padding: EdgeInsets.zero,
-                            visualDensity: VisualDensity.compact,
-                          )
-                        else if (_counterDirty)
-                          Chip(
-                            label: const Text('⟳ syncing'),
                             labelStyle: theme.textTheme.labelSmall,
                             padding: EdgeInsets.zero,
                             visualDensity: VisualDensity.compact,
