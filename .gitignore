@@ -40,3 +40,6 @@ macos/Frameworks/
 
 # Note: lib/src/generated/ and lib/src/proto/ ARE committed so that pub.dev
 # consumers do not need the Rust/uniffi-bindgen-dart/protoc toolchain.
+
+# Rust FFI wrapper build output (cargo) — never commit
+rust/target/
