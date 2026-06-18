@@ -1419,6 +1419,13 @@ class TransportConfigFFI {
     /// JSON-encoded CollectionRouteTable for explicit collection->transport bindings.
     /// Collections not listed fall through to PACE/legacy scoring.
     required this.collectionRoutesJson,
+    /// Enable iroh's n0 hosted public relay pool + DNS discovery (internet sync).
+    /// Default `false` keeps the local-only, no-phone-home posture. When `true`,
+    /// the node's iroh endpoint uses `presets::N0`, routing traffic through n0's
+    /// PUBLIC relay infrastructure (`*.iroh.network`) so internet-connected
+    /// devices can sync without a shared LAN. MUST stay the last field — the
+    /// hand-maintained FFI codec reads/writes record fields in declaration order.
+    required this.enableN0Relay,
   });
 
   /// Enable Bluetooth LE transport (requires "bluetooth" feature)
@@ -1440,6 +1447,9 @@ class TransportConfigFFI {
   /// JSON-encoded CollectionRouteTable for explicit collection->transport bindings.
   /// Collections not listed fall through to PACE/legacy scoring.
   final String? collectionRoutesJson;
+  /// Enable iroh's n0 hosted public relay pool + DNS discovery (internet sync).
+  /// See the constructor doc — MUST stay the last field for codec field order.
+  final bool enableN0Relay;
 
   Map<String, dynamic> toJson() {
     return {
@@ -1448,6 +1458,7 @@ class TransportConfigFFI {
       'blePowerProfile': this.blePowerProfile,
       'transportPreference': this.transportPreference == null ? null : (() { final __tmp = this.transportPreference!; return __tmp; })(),
       'collectionRoutesJson': this.collectionRoutesJson,
+      'enableN0Relay': this.enableN0Relay,
     };
   }
 
@@ -1458,6 +1469,7 @@ class TransportConfigFFI {
       blePowerProfile: json['blePowerProfile'] == null ? null : json['blePowerProfile'] as String,
       transportPreference: json['transportPreference'] == null ? null : (() { final __tmp = json['transportPreference']; return (__tmp as List).map((item) => item as String).toList(); })(),
       collectionRoutesJson: json['collectionRoutesJson'] == null ? null : json['collectionRoutesJson'] as String,
+      enableN0Relay: (json['enableN0Relay'] as bool?) ?? false,
     );
   }
 
@@ -1467,6 +1479,7 @@ class TransportConfigFFI {
     Object? blePowerProfile = _sentinel,
     Object? transportPreference = _sentinel,
     Object? collectionRoutesJson = _sentinel,
+    bool? enableN0Relay,
   }) {
     return TransportConfigFFI(
       enableBle: enableBle ?? this.enableBle,
@@ -1474,21 +1487,22 @@ class TransportConfigFFI {
       blePowerProfile: blePowerProfile == _sentinel ? this.blePowerProfile : blePowerProfile as String?,
       transportPreference: transportPreference == _sentinel ? this.transportPreference : transportPreference as List<String>?,
       collectionRoutesJson: collectionRoutesJson == _sentinel ? this.collectionRoutesJson : collectionRoutesJson as String?,
+      enableN0Relay: enableN0Relay ?? this.enableN0Relay,
     );
   }
 
   @override
   String toString() {
-    return 'TransportConfigFFI(enableBle: $enableBle, bleMeshId: $bleMeshId, blePowerProfile: $blePowerProfile, transportPreference: $transportPreference, collectionRoutesJson: $collectionRoutesJson)';
+    return 'TransportConfigFFI(enableBle: $enableBle, bleMeshId: $bleMeshId, blePowerProfile: $blePowerProfile, transportPreference: $transportPreference, collectionRoutesJson: $collectionRoutesJson, enableN0Relay: $enableN0Relay)';
   }
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is TransportConfigFFI && enableBle == other.enableBle && bleMeshId == other.bleMeshId && blePowerProfile == other.blePowerProfile && transportPreference == other.transportPreference && collectionRoutesJson == other.collectionRoutesJson;
+      other is TransportConfigFFI && enableBle == other.enableBle && bleMeshId == other.bleMeshId && blePowerProfile == other.blePowerProfile && transportPreference == other.transportPreference && collectionRoutesJson == other.collectionRoutesJson && enableN0Relay == other.enableN0Relay;
 
   @override
-  int get hashCode => Object.hash(enableBle, bleMeshId, blePowerProfile, transportPreference, collectionRoutesJson);
+  int get hashCode => Object.hash(enableBle, bleMeshId, blePowerProfile, transportPreference, collectionRoutesJson, enableN0Relay);
 }
 
 /// One transport's link state for a peer (FFI mirror of
@@ -3007,6 +3021,7 @@ void _uniffiWriteTransportConfigFFI(TransportConfigFFI value, _UniFfiBinaryWrite
     writer.writeI8(1);
     writer.writeString(value.collectionRoutesJson!);
   }
+  writer.writeBool(value.enableN0Relay);
 }
 
 Uint8List _uniffiEncodeTransportConfigFFI(TransportConfigFFI value) {
@@ -3022,6 +3037,7 @@ TransportConfigFFI _uniffiReadTransportConfigFFI(_UniFfiBinaryReader reader) {
     blePowerProfile: (() { final int __tag = reader.readI8(); if (__tag == 0) return null; if (__tag != 1) throw StateError('invalid optional tag: $__tag'); return reader.readString(); })(),
     transportPreference: (() { final int __tag = reader.readI8(); if (__tag == 0) return null; if (__tag != 1) throw StateError('invalid optional tag: $__tag'); return (() { final int __len = reader.readI32(); final out = <String>[]; for (var i = 0; i < __len; i++) { out.add(reader.readString()); } return out; })(); })(),
     collectionRoutesJson: (() { final int __tag = reader.readI8(); if (__tag == 0) return null; if (__tag != 1) throw StateError('invalid optional tag: $__tag'); return reader.readString(); })(),
+    enableN0Relay: reader.readBool(),
   );
 }
 
@@ -3657,8 +3673,8 @@ class PeatFfiFfi {
     } catch (err) {
       throw StateError('Missing or invalid UniFFI checksum symbol `uniffi_peat_ffi_checksum_func_create_node`: $err');
     }
-    if (_checksum_uniffi_peat_ffi_checksum_func_create_node != 30790) {
-      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_func_create_node`: expected 30790, got $_checksum_uniffi_peat_ffi_checksum_func_create_node');
+    if (_checksum_uniffi_peat_ffi_checksum_func_create_node != 10363) {
+      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_func_create_node`: expected 10363, got $_checksum_uniffi_peat_ffi_checksum_func_create_node');
     }
     final int _checksum_uniffi_peat_ffi_checksum_func_create_position;
     try {
@@ -3807,8 +3823,8 @@ class PeatFfiFfi {
     } catch (err) {
       throw StateError('Missing or invalid UniFFI checksum symbol `uniffi_peat_ffi_checksum_method_peatnode_get_document`: $err');
     }
-    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_get_document != 47667) {
-      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_get_document`: expected 47667, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_get_document');
+    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_get_document != 13489) {
+      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_get_document`: expected 13489, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_get_document');
     }
     final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_get_markers;
     try {
@@ -3867,8 +3883,8 @@ class PeatFfiFfi {
     } catch (err) {
       throw StateError('Missing or invalid UniFFI checksum symbol `uniffi_peat_ffi_checksum_method_peatnode_ingest_inbound_lite_frame`: $err');
     }
-    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_ingest_inbound_lite_frame != 33280) {
-      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_ingest_inbound_lite_frame`: expected 33280, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_ingest_inbound_lite_frame');
+    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_ingest_inbound_lite_frame != 54430) {
+      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_ingest_inbound_lite_frame`: expected 54430, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_ingest_inbound_lite_frame');
     }
     final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_publish_document;
     try {
@@ -3877,8 +3893,8 @@ class PeatFfiFfi {
     } catch (err) {
       throw StateError('Missing or invalid UniFFI checksum symbol `uniffi_peat_ffi_checksum_method_peatnode_publish_document`: $err');
     }
-    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_publish_document != 25812) {
-      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_publish_document`: expected 25812, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_publish_document');
+    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_publish_document != 8309) {
+      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_publish_document`: expected 8309, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_publish_document');
     }
     final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_list_documents;
     try {
@@ -3997,8 +4013,8 @@ class PeatFfiFfi {
     } catch (err) {
       throw StateError('Missing or invalid UniFFI checksum symbol `uniffi_peat_ffi_checksum_method_peatnode_request_sync`: $err');
     }
-    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_request_sync != 6177) {
-      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_request_sync`: expected 6177, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_request_sync');
+    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_request_sync != 31901) {
+      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_request_sync`: expected 31901, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_request_sync');
     }
     final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_start_outbound_frames;
     try {
@@ -4017,8 +4033,8 @@ class PeatFfiFfi {
     } catch (err) {
       throw StateError('Missing or invalid UniFFI checksum symbol `uniffi_peat_ffi_checksum_method_peatnode_start_sync`: $err');
     }
-    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_start_sync != 55441) {
-      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_start_sync`: expected 55441, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_start_sync');
+    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_start_sync != 61436) {
+      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_start_sync`: expected 61436, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_start_sync');
     }
     final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_stop_outbound_frames;
     try {
@@ -4047,8 +4063,8 @@ class PeatFfiFfi {
     } catch (err) {
       throw StateError('Missing or invalid UniFFI checksum symbol `uniffi_peat_ffi_checksum_method_peatnode_subscribe`: $err');
     }
-    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_subscribe != 56100) {
-      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_subscribe`: expected 56100, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_subscribe');
+    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_subscribe != 15054) {
+      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_subscribe`: expected 15054, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_subscribe');
     }
     final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_subscribe_poll;
     try {
@@ -4057,8 +4073,8 @@ class PeatFfiFfi {
     } catch (err) {
       throw StateError('Missing or invalid UniFFI checksum symbol `uniffi_peat_ffi_checksum_method_peatnode_subscribe_poll`: $err');
     }
-    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_subscribe_poll != 13410) {
-      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_subscribe_poll`: expected 13410, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_subscribe_poll');
+    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_subscribe_poll != 62723) {
+      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_subscribe_poll`: expected 62723, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_subscribe_poll');
     }
     final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_sync_document;
     try {
@@ -6386,7 +6402,7 @@ class PeatFfiFfi {
         ..data = (returnBuf + 2).ref.ptr.cast<ffi.Uint8>();
       rustRetBufferPtrs.add(retBufPtr);
       final Uint8List retBytes = retBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(retBufPtr.ref.data.asTypedList(retBufPtr.ref.len));
-      return _UniFfiBinaryReader(retBytes).readString();
+      return utf8.decode(retBytes); // bare String return = raw utf8 (no len prefix)
     } finally {
       for (final ptr in foreignArgPtrs) {
         if (ptr != ffi.nullptr) {
