@@ -474,13 +474,6 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       _publishSelf(node);
       _flushMyCounter(node);
 
-      // Auto-reconnect: redial every remembered peer so a relaunch re-forms the
-      // mesh without re-scanning a QR. Delayed a bit so our endpoint is
-      // discoverable (pkarr publish) and the node has settled first.
-      Future.delayed(const Duration(seconds: 3), () {
-        if (mounted && _node != null) _redialKnownPeers(force: true);
-      });
-
       var _heartbeatTick = 0;
       var _catchupRotor = 0; // round-robins catch-up broadcasts, one per beat
       _peerTimer = Timer.periodic(const Duration(seconds: 2), (_) {
@@ -736,10 +729,13 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
         });
         // After the roster updates, surface any node that just went offline.
         _detectNodeDrops();
-        // Remember current peers (symmetric) and re-dial any remembered peer
-        // that's gone offline — heals the mesh after a drop without re-scanning.
+        // Remember current peers (symmetric) for the saved-peers list + manual
+        // Reconnect. We do NOT auto-redial here: connectPeer is a blocking FFI
+        // call (~5s for an unreachable peer) and would freeze the UI isolate —
+        // confirmed beachballing macOS at ~5s per offline saved peer. Reconnect
+        // is on-demand via the Saved-peers "Reconnect" button until peat-ffi
+        // exposes a non-blocking connect.
         _rememberConnectedPeers();
-        _redialKnownPeers();
       });
 
       // Refresh relative timestamps every 10 s
@@ -1218,7 +1214,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       try {
         node.connectPeer(nodeId: id); // relay/pkarr discovery resolves the rest
       } catch (_) {}
-      if (!force) break; // one redial per sweep bounds the blocking
+      if (!force) break;
     }
   }
 

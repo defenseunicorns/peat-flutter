@@ -41,9 +41,15 @@ final class PeatBLEManager: NSObject, CBCentralManagerDelegate, CBPeripheralDele
 
     var peerCount: Int { connected.count + subscribedCentrals.count }
 
+    // Dedicated SERIAL queue for all CoreBluetooth callbacks + mesh work. macOS
+    // Flutter merges the UI and platform thread, so running the radio on
+    // `queue: nil` (the main queue) starves/beachballs the UI under BLE load.
+    // Serial also serializes mesh access (callbacks + outbound bleTx).
+    let queue = DispatchQueue(label: "peat.ble", qos: .userInitiated)
+
     func start() {
-        central = CBCentralManager(delegate: self, queue: nil)
-        peripheral = CBPeripheralManager(delegate: self, queue: nil)
+        central = CBCentralManager(delegate: self, queue: queue)
+        peripheral = CBPeripheralManager(delegate: self, queue: queue)
     }
 
     func resume() {
@@ -246,11 +252,14 @@ final class PeatBleBridge: NSObject, FlutterStreamHandler {
         case "bleTx":
             guard let m = mesh else { result(false); return }
             if let payload = (call.arguments as? FlutterStandardTypedData)?.data {
-                radio.sendData(m.broadcastBytes(payload: payload))
+                // Mesh encode + radio writes off the (merged) main thread.
+                let r = radio
+                r.queue.async { r.sendData(m.broadcastBytes(payload: payload)) }
             }
             result(true)
         case "blePeerCount":
-            result(radio.peerCount)
+            // peerCount reads dicts mutated on the BLE queue — read there too.
+            result(radio.queue.sync { radio.peerCount })
         case "blePeerIds":
             result((mesh?.getConnectedPeers() ?? []).map { Int($0.nodeId) })
         case "isBleRunning":
