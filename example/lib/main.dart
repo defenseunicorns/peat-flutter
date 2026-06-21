@@ -122,6 +122,13 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   bool _wifiDirectOn = false;
   String _wifiDirectStatus = 'idle';
   int _wifiTunnelPeers = 0; // P2PWiFi TCP-tunnel link state (0/1)
+  // Iroh relay: opt into n0's hosted PUBLIC relay pool (presets::N0) so
+  // internet-connected devices sync without a shared LAN. OFF (default) keeps
+  // the local-only, no-phone-home posture. Persisted in shared_preferences and
+  // applied at node start (the iroh endpoint's relay policy is fixed at bind),
+  // so toggling restarts the node. See About tab.
+  static const String _kIrohRelayPref = 'iroh_relay_enabled';
+  bool _irohRelayOn = false;
   final List<_ChangeEntry> _changeLog = [];
   Timer? _changeLogTimer; // drives relative-time refresh
   // Content hashes: key → hash of last-seen raw JSON.
@@ -412,6 +419,11 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
         _myLiters = 0;
       }
       final storagePath = '${dir.path}/peat-$installId';
+      // Relay posture: read the persisted toggle BEFORE building the config —
+      // the iroh endpoint's relay policy is fixed when it binds, so this is
+      // applied at node start (toggling restarts the node). Default OFF keeps
+      // the local-only mesh posture.
+      _irohRelayOn = prefs.getBool(_kIrohRelayPref) ?? false;
       final node = PeatFlutterNode.create(NodeConfig(
         appId: 'peat-flutter-example',
         // Test-only shared key. Replace with a real base64-encoded 32-byte key:
@@ -425,12 +437,14 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
         // ANDROID_BLE_TRANSPORT — required for bleAddPeerJni and the outbound
         // fan-out to emit "ble" frames. The real radio is peat-btle (BleBridge);
         // peat-ffi's stub adapter is just the mesh's BLE transport endpoint.
-        transport: const TransportConfigFFI(
+        transport: TransportConfigFFI(
           enableBle: true,
           bleMeshId: null,
           blePowerProfile: 'balanced',
           transportPreference: null,
           collectionRoutesJson: null,
+          // n0 public relay opt-in for internet sync (About-tab toggle).
+          enableN0Relay: _irohRelayOn,
         ),
       ));
       node.startSync();
@@ -2578,6 +2592,26 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     }
   }
 
+  // Iroh relay toggle: persist the new posture and restart the node so the
+  // iroh endpoint rebinds with the chosen relay policy (presets::N0 when ON,
+  // presets::Empty when OFF). ON routes traffic through n0's PUBLIC relays
+  // (*.iroh.network) for internet sync alongside the local BLE/Wi-Fi mesh.
+  Future<void> _toggleIrohRelay() async {
+    if (_starting || _stopping) return;
+    final next = !_irohRelayOn;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kIrohRelayPref, next);
+    setState(() => _irohRelayOn = next);
+    // Restart only if a node is running; otherwise the next start picks it up.
+    if (_node != null) {
+      _stopNode();
+      // _stopNode flips _stopping; wait for it to settle, then restart. The
+      // start path re-reads the pref, so the new posture takes effect.
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (mounted) await _startNode();
+    }
+  }
+
   void _stopNode() {
     setState(() => _stopping = true);
     _changeSub?.cancel();
@@ -3254,6 +3288,39 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
                         ?.copyWith(color: theme.colorScheme.outline, fontStyle: FontStyle.italic),
                   ),
                 ],
+                // Iroh relay (internet sync) — cross-platform. Lets devices on
+                // different networks sync without a shared LAN, alongside the
+                // local BLE/Wi-Fi mesh.
+                const SizedBox(height: 12),
+                _aboutRow(theme, 'Iroh Relay', _irohRelayOn ? 'on' : 'off'),
+                const SizedBox(height: 6),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: OutlinedButton.icon(
+                    onPressed: (_starting || _stopping) ? null : _toggleIrohRelay,
+                    icon: Icon(_irohRelayOn ? Icons.cloud_off : Icons.cloud_sync, size: 18),
+                    label: Text(_irohRelayOn ? 'Disable Internet Relay' : 'Enable Internet Relay'),
+                  ),
+                ),
+                Text(
+                  _irohRelayOn
+                      ? 'ON: this node syncs over the internet via iroh\'s public '
+                        'relays (*.iroh.network) in addition to the local mesh, so '
+                        'devices on different networks converge. Traffic transits '
+                        'n0\'s public relay infrastructure. Toggling restarts the node.'
+                      : 'OFF: local mesh only (BLE / Wi-Fi Direct / LAN) — no '
+                        'internet relay, nothing leaves the local network. Enable to '
+                        'sync devices that only share internet connectivity. '
+                        'Toggling restarts the node.',
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: theme.colorScheme.outline, fontStyle: FontStyle.italic),
+                ),
+                Text(
+                  'Note: uses iroh\'s public relay pool today; a Defense Unicorns-'
+                  'hosted relay may replace it later.',
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: theme.colorScheme.outline, fontStyle: FontStyle.italic),
+                ),
                 if (_nodeId != null) ...[
                   const SizedBox(height: 12),
                   Text('Network Diagnostics',

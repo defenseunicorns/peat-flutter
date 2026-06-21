@@ -1,0 +1,28 @@
+# Thin cdylib wrapper that builds peat-flutter's native library from the
+# PUBLISHED `peat-ffi` crate (crates.io) — no `peat` repo checkout required.
+# It re-exports peat-ffi's UniFFI scaffolding; all API + the hand-maintained
+# Dart bindings (lib/src/generated/peat_ffi.dart) correspond to peat-ffi's
+# surface. Mirrors defenseunicorns/peat-swift's `rust/` wrapper.
+#
+# Standalone crate (own [workspace]) so it doesn't attach to the Flutter tree.
+[package]
+name = "peat-flutter-ffi"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+# MUST be `peat_ffi` so the artifact is libpeat_ffi.{a,dylib,so} and the UniFFI
+# namespace the Dart bindings load (create_node, etc.) matches what peat-ffi's
+# `setup_scaffolding!()` declares. Renaming this breaks the bindings.
+name = "peat_ffi"
+crate-type = ["staticlib", "cdylib"]
+
+[dependencies]
+# Pinned to the published peat-ffi. sync = document/CRDT API; bluetooth = BLE
+# transport; lite-bridge is required to compile (peat-ffi feature-gating) and
+# adds the peat-lite envelope transport used by the BLE relay path. peat-ffi's
+# own target-cfg selects the per-platform peat-btle backend automatically.
+peat-ffi = { version = "=0.2.8", default-features = false, features = ["sync", "bluetooth", "lite-bridge"] }

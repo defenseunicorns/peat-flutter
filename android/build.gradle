@@ -47,36 +47,32 @@ android {
     }
 }
 
-// Path to the peat workspace. For in-tree development peat/ and peat_flutter/
-// are siblings. Override via gradle.properties or -PpeatWorkspaceDir=/abs/path.
-def peatWorkspaceDir = project.findProperty('peatWorkspaceDir')
-    ?: new File(projectDir, '../../peat').canonicalPath
+// Path to the rust/ wrapper crate, which builds libpeat_ffi from the PUBLISHED
+// peat-ffi crate (crates.io) — no ../peat checkout required. The wrapper pins
+// the peat-ffi version + feature set (sync,bluetooth,lite-bridge) in its
+// Cargo.toml. Override via gradle.properties or -PrustDir=/abs/path.
+def rustDir = project.findProperty('rustDir')
+    ?: new File(projectDir, '../rust').canonicalPath
 
-// Cross-compile peat-ffi for all three Android ABIs via cargo-ndk.
+// Cross-compile the native FFI for all three Android ABIs via cargo-ndk.
 // Requires: cargo-ndk (cargo install cargo-ndk) and the Android NDK.
 // The NDK path is read from ANDROID_NDK_HOME or local.properties by cargo-ndk.
 task buildRustAndroid(type: Exec) {
-    description = 'Build peat-ffi for Android (arm64-v8a, armeabi-v7a, x86_64) via cargo-ndk.'
-    workingDir peatWorkspaceDir
+    description = 'Build libpeat_ffi for Android (arm64-v8a, armeabi-v7a, x86_64) via cargo-ndk, from the published peat-ffi crate via the rust/ wrapper.'
+    workingDir rustDir
     commandLine 'cargo', 'ndk',
         '-t', 'arm64-v8a',
         '-t', 'armeabi-v7a',
         '-t', 'x86_64',
         '-o', "${projectDir}/src/main/jniLibs",
-        'build', '--release',
-        '-p', 'peat-ffi',
-        // lite-bridge: universal Document (peat-lite) transport over BLE, so raw
-        // collections (e.g. the 'demo' counter) fan out as ble-lite frames in
-        // addition to the typed 0xB6 BleTranslator path.
-        '--features', 'sync,bluetooth,lite-bridge'
+        'build', '--release'
 
     // Teach Gradle when to skip this task (UP-TO-DATE check).
-    // Gradle re-runs only when Rust source or Cargo files change; incremental
-    // Android builds (hot reload, resource changes) skip cargo entirely.
-    inputs.dir("${peatWorkspaceDir}/peat-ffi/src")
+    // Gradle re-runs only when the wrapper's Rust source or Cargo files change.
+    inputs.dir("${rustDir}/src")
     inputs.files(
-        "${peatWorkspaceDir}/peat-ffi/Cargo.toml",
-        "${peatWorkspaceDir}/Cargo.lock"
+        "${rustDir}/Cargo.toml",
+        "${rustDir}/Cargo.lock"
     )
     outputs.dir("${projectDir}/src/main/jniLibs")
 }

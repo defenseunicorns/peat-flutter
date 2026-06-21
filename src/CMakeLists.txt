@@ -9,17 +9,20 @@ if(ANDROID OR APPLE)
   return()
 endif()
 
-# Allow override for non-sibling layouts: cmake -DPEAT_WORKSPACE_DIR=/path/to/peat
-if(NOT DEFINED PEAT_WORKSPACE_DIR)
-  get_filename_component(PEAT_WORKSPACE_DIR
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../peat"
+# Build libpeat_ffi from the PUBLISHED peat-ffi crate via the rust/ wrapper
+# (no ../peat checkout required). The wrapper pins the peat-ffi version +
+# feature set (sync,bluetooth,lite-bridge) in rust/Cargo.toml.
+# Allow override for non-standard layouts: cmake -DPEAT_RUST_DIR=/path/to/rust
+if(NOT DEFINED PEAT_RUST_DIR)
+  get_filename_component(PEAT_RUST_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/../rust"
     ABSOLUTE)
 endif()
 
-if(NOT EXISTS "${PEAT_WORKSPACE_DIR}/Cargo.toml")
+if(NOT EXISTS "${PEAT_RUST_DIR}/Cargo.toml")
   message(FATAL_ERROR
-    "peat workspace not found at ${PEAT_WORKSPACE_DIR}. "
-    "Set -DPEAT_WORKSPACE_DIR=<path> on the cmake invocation.")
+    "rust/ wrapper crate not found at ${PEAT_RUST_DIR}. "
+    "Set -DPEAT_RUST_DIR=<path> on the cmake invocation.")
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -36,17 +39,15 @@ else()
   message(FATAL_ERROR "Unsupported platform in src/CMakeLists.txt: ${CMAKE_SYSTEM_NAME}")
 endif()
 
-set(PEAT_LIB "${PEAT_WORKSPACE_DIR}/target/${RUST_TARGET}/release/${PEAT_LIB_NAME}")
+set(PEAT_LIB "${PEAT_RUST_DIR}/target/${RUST_TARGET}/release/${PEAT_LIB_NAME}")
 
 add_custom_command(
   OUTPUT "${PEAT_LIB}"
   COMMAND cargo build --release
-    --manifest-path "${PEAT_WORKSPACE_DIR}/Cargo.toml"
-    -p peat-ffi
-    --features sync,bluetooth
+    --manifest-path "${PEAT_RUST_DIR}/Cargo.toml"
     --target "${RUST_TARGET}"
-  WORKING_DIRECTORY "${PEAT_WORKSPACE_DIR}"
-  COMMENT "cargo build peat-ffi (${RUST_TARGET})"
+  WORKING_DIRECTORY "${PEAT_RUST_DIR}"
+  COMMENT "cargo build libpeat_ffi from published peat-ffi (${RUST_TARGET})"
   VERBATIM
 )
 

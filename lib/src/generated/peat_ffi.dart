@@ -1419,6 +1419,13 @@ class TransportConfigFFI {
     /// JSON-encoded CollectionRouteTable for explicit collection->transport bindings.
     /// Collections not listed fall through to PACE/legacy scoring.
     required this.collectionRoutesJson,
+    /// Enable iroh's n0 hosted public relay pool + DNS discovery (internet sync).
+    /// Default `false` keeps the local-only, no-phone-home posture. When `true`,
+    /// the node's iroh endpoint uses `presets::N0`, routing traffic through n0's
+    /// PUBLIC relay infrastructure (`*.iroh.network`) so internet-connected
+    /// devices can sync without a shared LAN. MUST stay the last field — the
+    /// hand-maintained FFI codec reads/writes record fields in declaration order.
+    required this.enableN0Relay,
   });
 
   /// Enable Bluetooth LE transport (requires "bluetooth" feature)
@@ -1440,6 +1447,9 @@ class TransportConfigFFI {
   /// JSON-encoded CollectionRouteTable for explicit collection->transport bindings.
   /// Collections not listed fall through to PACE/legacy scoring.
   final String? collectionRoutesJson;
+  /// Enable iroh's n0 hosted public relay pool + DNS discovery (internet sync).
+  /// See the constructor doc — MUST stay the last field for codec field order.
+  final bool enableN0Relay;
 
   Map<String, dynamic> toJson() {
     return {
@@ -1448,6 +1458,7 @@ class TransportConfigFFI {
       'blePowerProfile': this.blePowerProfile,
       'transportPreference': this.transportPreference == null ? null : (() { final __tmp = this.transportPreference!; return __tmp; })(),
       'collectionRoutesJson': this.collectionRoutesJson,
+      'enableN0Relay': this.enableN0Relay,
     };
   }
 
@@ -1458,6 +1469,7 @@ class TransportConfigFFI {
       blePowerProfile: json['blePowerProfile'] == null ? null : json['blePowerProfile'] as String,
       transportPreference: json['transportPreference'] == null ? null : (() { final __tmp = json['transportPreference']; return (__tmp as List).map((item) => item as String).toList(); })(),
       collectionRoutesJson: json['collectionRoutesJson'] == null ? null : json['collectionRoutesJson'] as String,
+      enableN0Relay: (json['enableN0Relay'] as bool?) ?? false,
     );
   }
 
@@ -1467,6 +1479,7 @@ class TransportConfigFFI {
     Object? blePowerProfile = _sentinel,
     Object? transportPreference = _sentinel,
     Object? collectionRoutesJson = _sentinel,
+    bool? enableN0Relay,
   }) {
     return TransportConfigFFI(
       enableBle: enableBle ?? this.enableBle,
@@ -1474,21 +1487,22 @@ class TransportConfigFFI {
       blePowerProfile: blePowerProfile == _sentinel ? this.blePowerProfile : blePowerProfile as String?,
       transportPreference: transportPreference == _sentinel ? this.transportPreference : transportPreference as List<String>?,
       collectionRoutesJson: collectionRoutesJson == _sentinel ? this.collectionRoutesJson : collectionRoutesJson as String?,
+      enableN0Relay: enableN0Relay ?? this.enableN0Relay,
     );
   }
 
   @override
   String toString() {
-    return 'TransportConfigFFI(enableBle: $enableBle, bleMeshId: $bleMeshId, blePowerProfile: $blePowerProfile, transportPreference: $transportPreference, collectionRoutesJson: $collectionRoutesJson)';
+    return 'TransportConfigFFI(enableBle: $enableBle, bleMeshId: $bleMeshId, blePowerProfile: $blePowerProfile, transportPreference: $transportPreference, collectionRoutesJson: $collectionRoutesJson, enableN0Relay: $enableN0Relay)';
   }
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is TransportConfigFFI && enableBle == other.enableBle && bleMeshId == other.bleMeshId && blePowerProfile == other.blePowerProfile && transportPreference == other.transportPreference && collectionRoutesJson == other.collectionRoutesJson;
+      other is TransportConfigFFI && enableBle == other.enableBle && bleMeshId == other.bleMeshId && blePowerProfile == other.blePowerProfile && transportPreference == other.transportPreference && collectionRoutesJson == other.collectionRoutesJson && enableN0Relay == other.enableN0Relay;
 
   @override
-  int get hashCode => Object.hash(enableBle, bleMeshId, blePowerProfile, transportPreference, collectionRoutesJson);
+  int get hashCode => Object.hash(enableBle, bleMeshId, blePowerProfile, transportPreference, collectionRoutesJson, enableN0Relay);
 }
 
 /// One transport's link state for a peer (FFI mirror of
@@ -3007,6 +3021,7 @@ void _uniffiWriteTransportConfigFFI(TransportConfigFFI value, _UniFfiBinaryWrite
     writer.writeI8(1);
     writer.writeString(value.collectionRoutesJson!);
   }
+  writer.writeBool(value.enableN0Relay);
 }
 
 Uint8List _uniffiEncodeTransportConfigFFI(TransportConfigFFI value) {
@@ -3022,6 +3037,7 @@ TransportConfigFFI _uniffiReadTransportConfigFFI(_UniFfiBinaryReader reader) {
     blePowerProfile: (() { final int __tag = reader.readI8(); if (__tag == 0) return null; if (__tag != 1) throw StateError('invalid optional tag: $__tag'); return reader.readString(); })(),
     transportPreference: (() { final int __tag = reader.readI8(); if (__tag == 0) return null; if (__tag != 1) throw StateError('invalid optional tag: $__tag'); return (() { final int __len = reader.readI32(); final out = <String>[]; for (var i = 0; i < __len; i++) { out.add(reader.readString()); } return out; })(); })(),
     collectionRoutesJson: (() { final int __tag = reader.readI8(); if (__tag == 0) return null; if (__tag != 1) throw StateError('invalid optional tag: $__tag'); return reader.readString(); })(),
+    enableN0Relay: reader.readBool(),
   );
 }
 
@@ -3719,6 +3735,16 @@ class PeatFfiFfi {
     }
     if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_connect_peer != 44923) {
       throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_connect_peer`: expected 44923, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_connect_peer');
+    }
+    final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_connect_peer_nowait;
+    try {
+      final int Function() checksumFn = lib.lookupFunction<ffi.Uint16 Function(), int Function()>('uniffi_peat_ffi_checksum_method_peatnode_connect_peer_nowait');
+      _checksum_uniffi_peat_ffi_checksum_method_peatnode_connect_peer_nowait = checksumFn();
+    } catch (err) {
+      throw StateError('Missing or invalid UniFFI checksum symbol `uniffi_peat_ffi_checksum_method_peatnode_connect_peer_nowait`: $err');
+    }
+    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_connect_peer_nowait != 25433) {
+      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_connect_peer_nowait`: expected 25433, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_connect_peer_nowait');
     }
     final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_connected_peers;
     try {
@@ -6397,7 +6423,7 @@ class PeatFfiFfi {
         ..data = (returnBuf + 2).ref.ptr.cast<ffi.Uint8>();
       rustRetBufferPtrs.add(retBufPtr);
       final Uint8List retBytes = retBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(retBufPtr.ref.data.asTypedList(retBufPtr.ref.len));
-      return _UniFfiBinaryReader(retBytes).readString();
+      return utf8.decode(retBytes); // bare String return = raw utf8 (no len prefix)
     } finally {
       for (final ptr in foreignArgPtrs) {
         if (ptr != ffi.nullptr) {
@@ -9096,8 +9122,14 @@ final class PeatNode {
     _ffi.peatNodeInvokeConnectPeer(_handle, peer);
   }
 
-  /// Connect to a peer WITHOUT blocking — the dial runs on the Rust runtime and
-  /// this returns immediately. Safe to call from the UI isolate.
+  /// Connect to a peer WITHOUT blocking the caller.
+  ///
+  /// Fire-and-forget variant of [connectPeer]: spawns the connect + formation
+  /// handshake + sync trigger on the native runtime and returns immediately, so
+  /// the calling isolate is never blocked for the dial duration (~seconds for an
+  /// unreachable peer). On success the peer appears in [connectedPeers] and a
+  /// Connected event fires; background failures are logged natively (via
+  /// `tracing`) and dropped — there is no synchronous result to inspect.
   void connectPeerNowait(PeerInfo peer) {
     _ensureOpen();
     _ffi.peatNodeInvokeConnectPeerNowait(_handle, peer);

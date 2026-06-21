@@ -72,16 +72,15 @@ gen-proto:
         $protos
     echo "Proto stubs written to {{proto_dir}}/"
 
-# Build peat-ffi for all Android ABIs via cargo-ndk.
+# Build libpeat_ffi for all Android ABIs via cargo-ndk, from the PUBLISHED
+# peat-ffi crate via the rust/ wrapper (no ../peat checkout needed).
 # Requires: cargo install cargo-ndk  +  Android NDK (ANDROID_NDK_HOME set).
 build-android:
     cargo ndk \
         -t arm64-v8a -t armeabi-v7a -t x86_64 \
         -o android/src/main/jniLibs \
         build --release \
-        --manifest-path "{{peat_workspace}}/Cargo.toml" \
-        -p peat-ffi \
-        --features sync,bluetooth
+        --manifest-path "rust/Cargo.toml"
 
 # Build peat-ffi for iOS (xcframework). macOS host only.
 build-ios:
