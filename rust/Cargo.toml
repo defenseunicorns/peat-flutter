@@ -25,4 +25,4 @@ crate-type = ["staticlib", "cdylib"]
 # transport; lite-bridge is required to compile (peat-ffi feature-gating) and
 # adds the peat-lite envelope transport used by the BLE relay path. peat-ffi's
 # own target-cfg selects the per-platform peat-btle backend automatically.
-peat-ffi = { version = "=0.2.7", default-features = false, features = ["sync", "bluetooth", "lite-bridge"] }
+peat-ffi = { version = "=0.2.8", default-features = false, features = ["sync", "bluetooth", "lite-bridge"] }

@@ -3736,6 +3736,16 @@ class PeatFfiFfi {
     if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_connect_peer != 44923) {
       throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_connect_peer`: expected 44923, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_connect_peer');
     }
+    final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_connect_peer_nowait;
+    try {
+      final int Function() checksumFn = lib.lookupFunction<ffi.Uint16 Function(), int Function()>('uniffi_peat_ffi_checksum_method_peatnode_connect_peer_nowait');
+      _checksum_uniffi_peat_ffi_checksum_method_peatnode_connect_peer_nowait = checksumFn();
+    } catch (err) {
+      throw StateError('Missing or invalid UniFFI checksum symbol `uniffi_peat_ffi_checksum_method_peatnode_connect_peer_nowait`: $err');
+    }
+    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_connect_peer_nowait != 25433) {
+      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_connect_peer_nowait`: expected 25433, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_connect_peer_nowait');
+    }
     final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_connected_peers;
     try {
       final int Function() checksumFn = lib.lookupFunction<ffi.Uint16 Function(), int Function()>('uniffi_peat_ffi_checksum_method_peatnode_connected_peers');
@@ -4757,6 +4767,114 @@ class PeatFfiFfi {
       (argBuf + 2).ref.u64 = peerRustBuffer.len;
       (argBuf + 3).ref.ptr = peerRustBuffer.data.cast<ffi.Void>();
       _peatNodeConnectPeerFfiBuffer(argBuf, returnBuf);
+      final int statusCode = (returnBuf + 0).ref.i8;
+      if (statusCode != _uniFfiRustCallStatusSuccess) {
+        final ffi.Pointer<_UniFfiRustBuffer> errBufPtr = calloc<_UniFfiRustBuffer>();
+        errBufPtr.ref
+          ..capacity = (returnBuf + 1).ref.u64
+          ..len = (returnBuf + 2).ref.u64
+          ..data = (returnBuf + 3).ref.ptr.cast<ffi.Uint8>();
+        rustRetBufferPtrs.add(errBufPtr);
+        if (statusCode == _uniFfiRustCallStatusError) {
+          final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          throw _uniffiLiftPeatErrorException(errBytes);
+        }
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
+      }
+      return;
+    } finally {
+      for (final ptr in foreignArgPtrs) {
+        if (ptr != ffi.nullptr) {
+          calloc.free(ptr);
+        }
+      }
+      for (final bufPtr in rustRetBufferPtrs) {
+        if (bufPtr.ref.data == ffi.nullptr && bufPtr.ref.len == 0 && bufPtr.ref.capacity == 0) {
+          continue;
+        }
+        final ffi.Pointer<_UniFfiRustCallStatus> freeStatusPtr = calloc<_UniFfiRustCallStatus>();
+        freeStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
+        freeStatusPtr.ref.errorBuf
+          ..capacity = 0
+          ..len = 0
+          ..data = ffi.nullptr;
+        _uniFfiRustBufferFree(bufPtr.ref, freeStatusPtr);
+        calloc.free(freeStatusPtr);
+        calloc.free(bufPtr);
+      }
+      calloc.free(argBuf);
+      calloc.free(returnBuf);
+    }
+  }
+
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeConnectPeerNowaitFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_connect_peer_nowait');
+
+  void peatNodeInvokeConnectPeerNowait(int handle, PeerInfo peer) {
+    final ffi.Pointer<_UniFfiFfiBufferElement> argBuf = calloc<_UniFfiFfiBufferElement>(4);
+    final ffi.Pointer<_UniFfiFfiBufferElement> returnBuf = calloc<_UniFfiFfiBufferElement>(4);
+    final foreignArgPtrs = <ffi.Pointer<ffi.Uint8>>[];
+    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
+    try {
+      final int clonedHandle;
+      {
+        final cloneStatusPtr = calloc<_UniFfiRustCallStatus>();
+        try {
+          cloneStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
+          cloneStatusPtr.ref.errorBuf
+            ..capacity = 0
+            ..len = 0
+            ..data = ffi.nullptr;
+          clonedHandle = _peatNodeClone(handle, cloneStatusPtr);
+          if (cloneStatusPtr.ref.code != _uniFfiRustCallStatusSuccess) {
+            throw StateError('UniFFI clone failed with status ${cloneStatusPtr.ref.code}');
+          }
+        } finally {
+          calloc.free(cloneStatusPtr);
+        }
+      }
+      (argBuf + 0).ref.u64 = clonedHandle;
+      final Uint8List peerBytes = _uniffiEncodePeerInfo(peer);
+      final ffi.Pointer<ffi.Uint8> peerPtr = peerBytes.isEmpty ? ffi.nullptr : calloc<ffi.Uint8>(peerBytes.length);
+      if (peerBytes.isNotEmpty) { peerPtr.asTypedList(peerBytes.length).setAll(0, peerBytes); }
+      foreignArgPtrs.add(peerPtr);
+      final ffi.Pointer<_UniFfiRustCallStatus> peerFromBytesStatusPtr = calloc<_UniFfiRustCallStatus>();
+      peerFromBytesStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
+      peerFromBytesStatusPtr.ref.errorBuf
+        ..capacity = 0
+        ..len = 0
+        ..data = ffi.nullptr;
+      final ffi.Pointer<_UniFfiForeignBytes> peerForeignPtr = calloc<_UniFfiForeignBytes>();
+      peerForeignPtr.ref
+        ..len = peerBytes.length
+        ..data = peerPtr;
+      final _UniFfiRustBuffer peerRustBuffer = _uniFfiRustBufferFromBytes(peerForeignPtr.ref, peerFromBytesStatusPtr);
+      calloc.free(peerForeignPtr);
+      final int peerFromBytesCode = peerFromBytesStatusPtr.ref.code;
+      final _UniFfiRustBuffer peerFromBytesErrBuf = peerFromBytesStatusPtr.ref.errorBuf;
+      calloc.free(peerFromBytesStatusPtr);
+      if (peerFromBytesCode != _uniFfiRustCallStatusSuccess) {
+        final ffi.Pointer<_UniFfiRustBuffer> peerFromBytesErrBufPtr = calloc<_UniFfiRustBuffer>();
+        peerFromBytesErrBufPtr.ref
+          ..capacity = peerFromBytesErrBuf.capacity
+          ..len = peerFromBytesErrBuf.len
+          ..data = peerFromBytesErrBuf.data;
+        rustRetBufferPtrs.add(peerFromBytesErrBufPtr);
+        throw StateError('UniFFI rustbuffer_from_bytes failed with status $peerFromBytesCode');
+      }
+      (argBuf + 1).ref.u64 = peerRustBuffer.capacity;
+      (argBuf + 2).ref.u64 = peerRustBuffer.len;
+      (argBuf + 3).ref.ptr = peerRustBuffer.data.cast<ffi.Void>();
+      _peatNodeConnectPeerNowaitFfiBuffer(argBuf, returnBuf);
       final int statusCode = (returnBuf + 0).ref.i8;
       if (statusCode != _uniFfiRustCallStatusSuccess) {
         final ffi.Pointer<_UniFfiRustBuffer> errBufPtr = calloc<_UniFfiRustBuffer>();
@@ -9099,6 +9217,19 @@ final class PeatNode {
   void connectPeer(PeerInfo peer) {
     _ensureOpen();
     _ffi.peatNodeInvokeConnectPeer(_handle, peer);
+  }
+
+  /// Connect to a peer WITHOUT blocking the caller.
+  ///
+  /// Fire-and-forget variant of [connectPeer]: spawns the connect + formation
+  /// handshake + sync trigger on the native runtime and returns immediately, so
+  /// the calling isolate is never blocked for the dial duration (~seconds for an
+  /// unreachable peer). On success the peer appears in [connectedPeers] and a
+  /// Connected event fires; background failures are logged natively (via
+  /// `tracing`) and dropped — there is no synchronous result to inspect.
+  void connectPeerNowait(PeerInfo peer) {
+    _ensureOpen();
+    _ffi.peatNodeInvokeConnectPeerNowait(_handle, peer);
   }
 
   /// Get list of connected peer IDs
