@@ -334,6 +334,8 @@ class DocumentChange {
     required this.docId,
     /// Type of change
     required this.changeType,
+    /// Where the change came from (local edit vs. remote peer sync)
+    required this.origin,
   });
 
   /// Collection name
@@ -342,20 +344,29 @@ class DocumentChange {
   final String docId;
   /// Type of change
   final ChangeType changeType;
+  /// Where the change came from — local edit vs. remote peer sync. Consumers
+  /// use this to notify on remote changes without alerting on their own edits.
+  final ChangeOrigin origin;
 
   Map<String, dynamic> toJson() {
     return {
       'collection': this.collection,
       'docId': this.docId,
       'changeType': ChangeTypeFfiCodec.encode(this.changeType),
+      // null = local change; non-null = remote peer's id.
+      'origin': this.origin.peerId,
     };
   }
 
   factory DocumentChange.fromJson(Map<String, dynamic> json) {
+    final originPeer = json['origin'] as String?;
     return DocumentChange(
       collection: json['collection'] as String,
       docId: json['docId'] as String,
       changeType: ChangeTypeFfiCodec.decode(json['changeType'] as String),
+      origin: originPeer == null
+          ? const ChangeOrigin.local()
+          : ChangeOrigin.remote(originPeer),
     );
   }
 
@@ -363,26 +374,60 @@ class DocumentChange {
     String? collection,
     String? docId,
     ChangeType? changeType,
+    ChangeOrigin? origin,
   }) {
     return DocumentChange(
       collection: collection ?? this.collection,
       docId: docId ?? this.docId,
       changeType: changeType ?? this.changeType,
+      origin: origin ?? this.origin,
     );
   }
 
   @override
   String toString() {
-    return 'DocumentChange(collection: $collection, docId: $docId, changeType: $changeType)';
+    return 'DocumentChange(collection: $collection, docId: $docId, changeType: $changeType, origin: $origin)';
   }
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is DocumentChange && collection == other.collection && docId == other.docId && changeType == other.changeType;
+      other is DocumentChange && collection == other.collection && docId == other.docId && changeType == other.changeType && origin == other.origin;
 
   @override
-  int get hashCode => Object.hash(collection, docId, changeType);
+  int get hashCode => Object.hash(collection, docId, changeType, origin);
+}
+
+/// Where a document change came from — a local write vs. a remote peer's sync.
+/// Mirrors peat-ffi's `ChangeOrigin`. Consumers use this to decide whether a
+/// change is worth surfacing to the user: an [isRemote] change is something
+/// another node did (and may warrant a notification); a local one is the user's
+/// own edit and usually is not.
+class ChangeOrigin {
+  /// A change from a local write on this node.
+  const ChangeOrigin.local() : peerId = null;
+
+  /// A change received from a remote peer via sync. [peerId] is that peer's
+  /// stable id (hex node id for the iroh transport; transport-agnostic).
+  const ChangeOrigin.remote(String this.peerId);
+
+  /// The remote peer's id, or null for a local change.
+  final String? peerId;
+
+  bool get isLocal => peerId == null;
+  bool get isRemote => peerId != null;
+
+  @override
+  String toString() =>
+      isRemote ? 'ChangeOrigin.remote($peerId)' : 'ChangeOrigin.local()';
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ChangeOrigin && peerId == other.peerId);
+
+  @override
+  int get hashCode => peerId.hashCode;
 }
 
 /// Operator-placed map marker — the typed shape every peer renders
@@ -1425,7 +1470,7 @@ class TransportConfigFFI {
     /// PUBLIC relay infrastructure (`*.iroh.network`) so internet-connected
     /// devices can sync without a shared LAN. MUST stay the last field — the
     /// hand-maintained FFI codec reads/writes record fields in declaration order.
-    required this.enableN0Relay,
+    this.enableN0Relay = false,
   });
 
   /// Enable Bluetooth LE transport (requires "bluetooth" feature)
@@ -2495,7 +2540,22 @@ DocumentChange _uniffiReadDocumentChange(_UniFfiBinaryReader reader) {
     collection: reader.readString(),
     docId: reader.readString(),
     changeType: _uniffiReadChangeType(reader),
+    origin: _uniffiReadChangeOrigin(reader),
   );
+}
+
+/// Decode a ChangeOrigin: i32 variant tag (1=Local, 2=Remote), and for Remote a
+/// following length-prefixed peer-id string. Mirrors the Rust enum order.
+ChangeOrigin _uniffiReadChangeOrigin(_UniFfiBinaryReader reader) {
+  final int tag = reader.readI32();
+  switch (tag) {
+    case 1:
+      return const ChangeOrigin.local();
+    case 2:
+      return ChangeOrigin.remote(reader.readString());
+    default:
+      throw StateError('Unknown ChangeOrigin variant tag: $tag');
+  }
 }
 
 DocumentChange _uniffiDecodeDocumentChange(Uint8List bytes) {
@@ -8120,6 +8180,202 @@ class PeatFfiFfi {
     }
   }
 
+  // --- Reconnect supervisor surface -----------------------------------------
+  //
+  // Shared drivers for the void-returning roster/reconnect ffibuffer calls.
+  // These are faithful factorings of the per-method marshalling above
+  // (connect_peer_nowait / disconnect_peer / request_sync): clone the handle,
+  // encode any string/record args into RustBuffers, invoke, check the void
+  // return status, and free every allocation.
+
+  /// Encode [bytes] into a RustBuffer and write its (capacity, len, data)
+  /// triple into [argBuf] at [slot]..[slot]+2. Registers the foreign byte
+  /// allocation in [foreignArgPtrs] for cleanup. Used for String and Record
+  /// arguments (a String is its UTF-8 bytes; a Record is its encoded bytes).
+  void _writeBytesArg(
+    ffi.Pointer<_UniFfiFfiBufferElement> argBuf,
+    int slot,
+    Uint8List bytes,
+    List<ffi.Pointer<ffi.Uint8>> foreignArgPtrs,
+    List<ffi.Pointer<_UniFfiRustBuffer>> rustRetBufferPtrs,
+  ) {
+    final ffi.Pointer<ffi.Uint8> dataPtr =
+        bytes.isEmpty ? ffi.nullptr : calloc<ffi.Uint8>(bytes.length);
+    if (bytes.isNotEmpty) {
+      dataPtr.asTypedList(bytes.length).setAll(0, bytes);
+    }
+    foreignArgPtrs.add(dataPtr);
+    final ffi.Pointer<_UniFfiRustCallStatus> statusPtr =
+        calloc<_UniFfiRustCallStatus>();
+    statusPtr.ref.code = _uniFfiRustCallStatusSuccess;
+    statusPtr.ref.errorBuf
+      ..capacity = 0
+      ..len = 0
+      ..data = ffi.nullptr;
+    final ffi.Pointer<_UniFfiForeignBytes> foreignPtr =
+        calloc<_UniFfiForeignBytes>();
+    foreignPtr.ref
+      ..len = bytes.length
+      ..data = dataPtr;
+    final _UniFfiRustBuffer rustBuffer =
+        _uniFfiRustBufferFromBytes(foreignPtr.ref, statusPtr);
+    calloc.free(foreignPtr);
+    final int code = statusPtr.ref.code;
+    final _UniFfiRustBuffer errBuf = statusPtr.ref.errorBuf;
+    calloc.free(statusPtr);
+    if (code != _uniFfiRustCallStatusSuccess) {
+      final ffi.Pointer<_UniFfiRustBuffer> errBufPtr = calloc<_UniFfiRustBuffer>();
+      errBufPtr.ref
+        ..capacity = errBuf.capacity
+        ..len = errBuf.len
+        ..data = errBuf.data;
+      rustRetBufferPtrs.add(errBufPtr);
+      throw StateError('UniFFI rustbuffer_from_bytes failed with status $code');
+    }
+    (argBuf + slot).ref.u64 = rustBuffer.capacity;
+    (argBuf + slot + 1).ref.u64 = rustBuffer.len;
+    (argBuf + slot + 2).ref.ptr = rustBuffer.data.cast<ffi.Void>();
+  }
+
+  /// Drive a void-returning ffibuffer call: clone the handle into argBuf[0],
+  /// let [fillArgs] populate the remaining slots, invoke [fn], check the void
+  /// return status (returnBuf[0]=status, [1..3]=error), and free everything.
+  void _invokeFfiVoid(
+    int handle,
+    int argCount,
+    void Function(
+      ffi.Pointer<_UniFfiFfiBufferElement> argBuf,
+      List<ffi.Pointer<ffi.Uint8>> foreignArgPtrs,
+      List<ffi.Pointer<_UniFfiRustBuffer>> rustRetBufferPtrs,
+    ) fillArgs,
+    void Function(ffi.Pointer<_UniFfiFfiBufferElement> a,
+            ffi.Pointer<_UniFfiFfiBufferElement> r)
+        fn,
+  ) {
+    final ffi.Pointer<_UniFfiFfiBufferElement> argBuf =
+        calloc<_UniFfiFfiBufferElement>(argCount);
+    final ffi.Pointer<_UniFfiFfiBufferElement> returnBuf =
+        calloc<_UniFfiFfiBufferElement>(4);
+    final foreignArgPtrs = <ffi.Pointer<ffi.Uint8>>[];
+    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
+    try {
+      final int clonedHandle;
+      {
+        final cloneStatusPtr = calloc<_UniFfiRustCallStatus>();
+        try {
+          cloneStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
+          cloneStatusPtr.ref.errorBuf
+            ..capacity = 0
+            ..len = 0
+            ..data = ffi.nullptr;
+          clonedHandle = _peatNodeClone(handle, cloneStatusPtr);
+          if (cloneStatusPtr.ref.code != _uniFfiRustCallStatusSuccess) {
+            throw StateError(
+                'UniFFI clone failed with status ${cloneStatusPtr.ref.code}');
+          }
+        } finally {
+          calloc.free(cloneStatusPtr);
+        }
+      }
+      (argBuf + 0).ref.u64 = clonedHandle;
+      fillArgs(argBuf, foreignArgPtrs, rustRetBufferPtrs);
+      fn(argBuf, returnBuf);
+      final int statusCode = (returnBuf + 0).ref.i8;
+      if (statusCode != _uniFfiRustCallStatusSuccess) {
+        final ffi.Pointer<_UniFfiRustBuffer> errBufPtr = calloc<_UniFfiRustBuffer>();
+        errBufPtr.ref
+          ..capacity = (returnBuf + 1).ref.u64
+          ..len = (returnBuf + 2).ref.u64
+          ..data = (returnBuf + 3).ref.ptr.cast<ffi.Uint8>();
+        rustRetBufferPtrs.add(errBufPtr);
+        if (statusCode == _uniFfiRustCallStatusError) {
+          final Uint8List errBytes = errBufPtr.ref.len == 0
+              ? Uint8List(0)
+              : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          throw _uniffiLiftPeatErrorException(errBytes);
+        }
+        String panicMsg = '';
+        if (errBufPtr.ref.len > 0) {
+          final Uint8List rawErr =
+              Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
+          Uint8List bodyErr = rawErr;
+          if (rawErr.length >= 4) {
+            final int prefixLen =
+                (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
+            if (prefixLen == rawErr.length - 4) {
+              bodyErr = rawErr.sublist(4);
+            }
+          }
+          panicMsg = String.fromCharCodes(bodyErr);
+        }
+        throw StateError(
+            'UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
+      }
+    } finally {
+      for (final ptr in foreignArgPtrs) {
+        if (ptr != ffi.nullptr) {
+          calloc.free(ptr);
+        }
+      }
+      for (final bufPtr in rustRetBufferPtrs) {
+        if (bufPtr.ref.data == ffi.nullptr &&
+            bufPtr.ref.len == 0 &&
+            bufPtr.ref.capacity == 0) {
+          continue;
+        }
+        final ffi.Pointer<_UniFfiRustCallStatus> freeStatusPtr =
+            calloc<_UniFfiRustCallStatus>();
+        freeStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
+        freeStatusPtr.ref.errorBuf
+          ..capacity = 0
+          ..len = 0
+          ..data = ffi.nullptr;
+        _uniFfiRustBufferFree(bufPtr.ref, freeStatusPtr);
+        calloc.free(freeStatusPtr);
+        calloc.free(bufPtr);
+      }
+      calloc.free(argBuf);
+      calloc.free(returnBuf);
+    }
+  }
+
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeRosterRememberFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_roster_remember');
+
+  /// roster_remember(group_id: String, peer: PeerInfo) -> void.
+  /// argBuf: [0]=handle, [1..3]=group_id buf, [4..6]=peer buf.
+  void peatNodeInvokeRosterRemember(int handle, String groupId, PeerInfo peer) {
+    _invokeFfiVoid(handle, 7, (argBuf, foreignArgPtrs, rustRetBufferPtrs) {
+      _writeBytesArg(argBuf, 1, Uint8List.fromList(utf8.encode(groupId)),
+          foreignArgPtrs, rustRetBufferPtrs);
+      _writeBytesArg(argBuf, 4, _uniffiEncodePeerInfo(peer), foreignArgPtrs,
+          rustRetBufferPtrs);
+    }, _peatNodeRosterRememberFfiBuffer);
+  }
+
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeReconnectKnownPeersFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_reconnect_known_peers');
+
+  /// reconnect_known_peers() -> void. Handle-only.
+  void peatNodeInvokeReconnectKnownPeers(int handle) {
+    _invokeFfiVoid(handle, 1, (_, __, ___) {}, _peatNodeReconnectKnownPeersFfiBuffer);
+  }
+
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeWakeReconnectFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_wake_reconnect');
+
+  /// wake_reconnect() -> void. Handle-only.
+  void peatNodeInvokeWakeReconnect(int handle) {
+    _invokeFfiVoid(handle, 1, (_, __, ___) {}, _peatNodeWakeReconnectFfiBuffer);
+  }
+
+  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeOnPeerObservedFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_on_peer_observed');
+
+  /// on_peer_observed(node_id: String) -> void. argBuf: [0]=handle, [1..3]=node_id.
+  void peatNodeInvokeOnPeerObserved(int handle, String nodeId) {
+    _invokeFfiVoid(handle, 4, (argBuf, foreignArgPtrs, rustRetBufferPtrs) {
+      _writeBytesArg(argBuf, 1, Uint8List.fromList(utf8.encode(nodeId)),
+          foreignArgPtrs, rustRetBufferPtrs);
+    }, _peatNodeOnPeerObservedFfiBuffer);
+  }
+
   late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeStartOutboundFramesFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_start_outbound_frames');
 
   void peatNodeInvokeStartOutboundFrames(int handle) {
@@ -9134,6 +9390,38 @@ final class PeatNode {
     _ensureOpen();
     _ffi.peatNodeInvokeConnectPeerNowait(_handle, peer);
   }
+
+  /// Remember a group member so the reconnect supervisor can re-dial it across
+  /// restarts and transport changes. Call once per member when joining a group
+  /// (e.g. from a scanned join token). Idempotent.
+  void rosterRemember(String groupId, PeerInfo peer) {
+    _ensureOpen();
+    _ffi.peatNodeInvokeRosterRemember(_handle, groupId, peer);
+  }
+
+  /// Run a gentle reconnect pass now: dial any disconnected, eligible roster
+  /// member. Does NOT clear backoff (use [wakeReconnect] for that).
+  void reconnectKnownPeers() {
+    _ensureOpen();
+    _ffi.peatNodeInvokeReconnectKnownPeers(_handle);
+  }
+
+  /// Wake the reconnect supervisor after a broad connectivity change — network
+  /// came up, or the app returned to foreground. Clears all backoffs so every
+  /// known peer is immediately eligible, then runs a pass.
+  void wakeReconnect() {
+    _ensureOpen();
+    _ffi.peatNodeInvokeWakeReconnect(_handle);
+  }
+
+  /// Hint that a specific group member is reachable right now (e.g. a BLE
+  /// neighbour advertisement, or a relay "peer online" signal): dials it
+  /// immediately if it isn't already connected and isn't backing off.
+  void onPeerObserved(String nodeId) {
+    _ensureOpen();
+    _ffi.peatNodeInvokeOnPeerObserved(_handle, nodeId);
+  }
+
 
   /// Get list of connected peer IDs
   List<String> connectedPeers() {

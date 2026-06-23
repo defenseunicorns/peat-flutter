@@ -14,6 +14,8 @@ export 'src/peat_node.dart'
         ChangeType,
         PeerInfo,
         PeerTransportState,
+        TransportLink,
+        TransportPathKind,
         NodeInfo,
         NodeStatus,
         CellInfo,

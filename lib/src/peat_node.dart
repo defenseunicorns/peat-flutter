@@ -19,8 +19,11 @@ export 'generated/peat_ffi.dart'
         DocumentChange,
         OutboundFrame,
         ChangeType,
+        ChangeOrigin,
         PeerInfo,
         PeerTransportState,
+        TransportLink,
+        TransportPathKind,
         NodeInfo,
         NodeStatus,
         CellInfo,
@@ -189,6 +192,50 @@ class PeatFlutterNode {
     ));
   }
 
+  // --- Reconnect supervisor -------------------------------------------------
+
+  /// Remember a group member so the native reconnect supervisor can re-dial it
+  /// across restarts, network changes, and transport switches. Call once per
+  /// member when joining a group (e.g. from a scanned join token). Idempotent.
+  ///
+  /// This replaces app-side redial timers: once a peer is remembered, the
+  /// supervisor keeps a live path up to it over whatever transport is reachable,
+  /// with backoff and cross-transport dedup handled natively.
+  void rememberPeer({
+    required String groupId,
+    required String nodeId,
+    List<String> addresses = const [],
+    String? relayUrl,
+    String name = '',
+  }) {
+    _node.rosterRemember(
+      groupId,
+      PeerInfo(
+        name: name,
+        nodeId: nodeId,
+        addresses: addresses,
+        relayUrl: relayUrl,
+      ),
+    );
+  }
+
+  /// Gentle reconnect pass: dial any disconnected, eligible roster member now.
+  /// Does not clear backoff. Cheap to call periodically.
+  void reconnectKnownPeers() => _node.reconnectKnownPeers();
+
+  /// Wake the supervisor after a broad connectivity change (network up, app
+  /// foreground): clears backoff so every known peer is immediately eligible,
+  /// then runs a pass. Call from `AppLifecycleState.resumed` and on
+  /// connectivity-restored events.
+  void wakeReconnect() => _node.wakeReconnect();
+
+  /// Hint that a specific group member is reachable now — e.g. a BLE neighbour
+  /// advertisement or a relay "peer online" signal. Dials it immediately if it
+  /// isn't already connected and isn't backing off, bypassing the periodic tick
+  /// (important inside a tight mobile background-execution budget).
+  void onPeerObserved(String nodeId) => _node.onPeerObserved(nodeId);
+
+
   /// Current sync statistics (active, bytes sent/received).
   SyncStats get syncStats => _node.syncStats();
 
@@ -240,9 +287,26 @@ class PeatFlutterNode {
   String? getRaw(String collection, String docId) =>
       _node.getDocument(collection, docId);
 
+  /// Store a raw JSON document under [collection]/[docId]. Synced across the
+  /// mesh via the universal-document transport (Iroh/WiFi/relay). The
+  /// counterpart to [getRaw].
+  void putRaw(String collection, String docId, String json) =>
+      _node.putDocument(collection, docId, json);
+
   /// List all document IDs in [collection].
   List<String> listDocuments(String collection) =>
       _node.listDocuments(collection);
+
+  /// Per-peer transport state — how each peer is currently reachable (iroh/BLE,
+  /// direct/relay, link quality). Currently enumerates peers visible to iroh.
+  /// Returns an empty list rather than throwing if the query fails.
+  List<PeerTransportState> peerTransportStates() {
+    try {
+      return _node.allPeerTransportStates();
+    } catch (_) {
+      return const [];
+    }
+  }
 
   /// A broadcast [Stream] of document change events.
   ///
