@@ -26,3 +26,8 @@ crate-type = ["staticlib", "cdylib"]
 # adds the peat-lite envelope transport used by the BLE relay path. peat-ffi's
 # own target-cfg selects the per-platform peat-btle backend automatically.
 peat-ffi = { version = "=0.2.9", default-features = false, features = ["sync", "bluetooth", "lite-bridge"] }
+
+[patch.crates-io]
+# Local fix: endpoint_addr() now returns relay URL (https://...) instead of Debug-fmt EndpointAddr.
+# Remove this patch once peat-ffi 0.2.10 is published and pinned above.
+peat-ffi = { path = "../../peat/peat-ffi" }
