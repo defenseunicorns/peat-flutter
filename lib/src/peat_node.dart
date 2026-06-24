@@ -89,9 +89,13 @@ class PeatFlutterNode {
   /// This node's hex-encoded unique identifier.
   String get nodeId => _node.nodeId();
 
-  /// This node's iroh endpoint address (relay/derp URL form).
+  /// The iroh relay URL this node is registered at (https:// form), or '—'
+  /// if the relay connection has not yet been established.
   String get endpointAddr {
-    try { return _node.endpointAddr(); } catch (_) { return '—'; }
+    try {
+      final url = _node.endpointAddr();
+      return url.isEmpty ? '—' : url;
+    } catch (_) { return '—'; }
   }
 
   /// This node's bound socket address (host:port), if available.
