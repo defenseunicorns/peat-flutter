@@ -5,7 +5,7 @@ name: QA Review
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
     branches: [main]
 
 permissions:
@@ -41,10 +41,24 @@ jobs:
           SHORT_SHA="${HEAD_SHA:0:7}"
           echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
-          REVIEWS=$(gh pr view "${{ github.event.pull_request.number }}" --json reviews)
+          PR_NUMBER="${{ github.event.pull_request.number }}"
 
-          if echo "$REVIEWS" | jq -e --arg tag "Peat QA Review (SHA: ${SHORT_SHA})" \
-               '.reviews[] | select(.body | contains($tag))' >/dev/null; then
+          # Hash of the PR title/body/base — the review INPUTS that live OUTSIDE the commit
+          # SHA. PR-description evidence is part of what we review, and an `edited` event can
+          # change it without changing the head SHA. Piped gh -> jq -> sha256sum so the
+          # untrusted title/body never enters the shell (no interpolation = no injection).
+          META=$(gh pr view "$PR_NUMBER" --json title,body,baseRefName --jq '{title,body,baseRefName}' | sha256sum | cut -c1-12)
+          echo "meta=${META}" >> "$GITHUB_OUTPUT"
+
+          REVIEWS=$(gh pr view "$PR_NUMBER" --json reviews)
+
+          # Skip only when a prior review matches BOTH the current head SHA AND the current
+          # title/body/base hash. Same SHA + a NEW hash (a title/description fix) must
+          # re-review, not skip — that was the bug: description fixes never re-triggered.
+          if echo "$REVIEWS" | jq -e \
+               --arg sha "Peat QA Review (SHA: ${SHORT_SHA})" \
+               --arg meta "peat-qa-meta: ${META}" \
+               '.reviews[] | select((.body | contains($sha)) and (.body | contains($meta)))' >/dev/null; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -66,6 +80,7 @@ jobs:
           HAS_PRIOR: ${{ steps.prior.outputs.has_prior }}
           PREV_SHA:  ${{ steps.prior.outputs.prev_sha }}
           SHORT_SHA: ${{ steps.prior.outputs.short_sha }}
+          META:      ${{ steps.prior.outputs.meta }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO:      ${{ github.repository }}
         run: |
@@ -74,8 +89,8 @@ jobs:
 
           already_posted() {
             gh pr view "$PR_NUMBER" --json reviews \
-              | jq -e --arg tag "Peat QA Review (SHA: ${SHORT_SHA})" \
-                   '.reviews[] | select(.body | contains($tag))' >/dev/null 2>&1
+              | jq -e --arg sha "Peat QA Review (SHA: ${SHORT_SHA})" --arg meta "peat-qa-meta: ${META}" \
+                   '.reviews[] | select((.body | contains($sha)) and (.body | contains($meta)))' >/dev/null 2>&1
           }
 
           submit_review() {
@@ -102,6 +117,11 @@ jobs:
               echo "::error::could not retrieve peat-bot token from host gh credential store"
               exit 1
             fi
+            # Stamp the title/body/base hash into the posted review so future runs can
+            # distinguish "already reviewed this exact PR state" from "description changed
+            # since". HTML comment: invisible in the rendered review, and its line never
+            # starts with a finding marker so the fail-closed grep above never trips on it.
+            printf '\n\n<!-- peat-qa-meta: %s -->\n' "$META" >> "$RUNNER_TEMP/peat-qa-review.md"
             if ! GH_TOKEN="$peat_bot_token" gh pr review "$PR_NUMBER" $verb --body-file "$RUNNER_TEMP/peat-qa-review.md"; then
               echo "::error::gh pr review ${verb} failed — verdict not posted"
               exit 1
@@ -123,6 +143,11 @@ jobs:
 
           Steps:
           1. Fetch PR metadata:  gh pr view ${PR_NUMBER}
+             NOTE: if \`git diff ${PREV_SHA}..${SHORT_SHA}\` shows no code changes, this
+             re-review was triggered by an edit to the PR title or description (not a new
+             commit). Re-evaluate the prior findings against the CURRENT title/description
+             from this step — especially any that depended on PR-description evidence. A
+             prior finding that the corrected description now satisfies is "Resolved".
           2. If HAS_PRIOR is "true" (incremental review):
                a. Fetch prior QA review body:
                   gh pr view ${PR_NUMBER} --json reviews --jq '[.reviews[] | select(.body | startswith("## Peat QA Review (SHA: "))] | sort_by(.submittedAt) | last | .body'
