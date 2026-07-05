@@ -26,3 +26,14 @@ crate-type = ["staticlib", "cdylib"]
 # adds the peat-lite envelope transport used by the BLE relay path. peat-ffi's
 # own target-cfg selects the per-platform peat-btle backend automatically.
 peat-ffi = { version = "=0.2.9", default-features = false, features = ["sync", "bluetooth", "lite-bridge"] }
+
+# LOCAL DEV ONLY — remove before merge. Points at the sibling peat checkout's
+# feat/peat-ffi-blob-fetch-uniffi branch (peat#1017, itself blocked on
+# peat-mesh#274) so this crate can build against blob_fetch_start before
+# peat-ffi 0.2.10 is published. Per peat/SKILL.md's cross-repo gotcha. Also
+# patches peat-mesh directly — peat-ffi's `peat-mesh = { workspace = true }`
+# resolves against the peat workspace's own version floor, which this
+# standalone build doesn't inherit peat/Cargo.toml's [patch.crates-io] for.
+[patch.crates-io]
+peat-ffi = { path = "../../peat/peat-ffi" }
+peat-mesh = { path = "../../peat-mesh" }
