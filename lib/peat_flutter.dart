@@ -28,7 +28,8 @@ export 'src/peat_node.dart'
         BlobFetchStatusStarted,
         BlobFetchStatusDownloading,
         BlobFetchStatusCompleted,
-        BlobFetchStatusFailed;
+        BlobFetchStatusFailed,
+        MarkerInfo;
 
 /// Opens the peat_ffi native library for the current platform.
 ///
