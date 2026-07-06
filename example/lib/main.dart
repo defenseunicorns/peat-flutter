@@ -155,6 +155,14 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   final TextEditingController _peerTokenCtrl = TextEditingController();
   Timer? _peerTimer;
 
+  // Blob transfer (ADR-060 / peat#1013)
+  String? _blobEndpointId;
+  String? _blobBoundAddr;
+  final List<({String hash, String contentType, int sizeBytes})> _localBlobs = [];
+  StreamSubscription<BlobFetchStatus>? _blobDownloadSub;
+  BlobFetchStatus? _blobDownloadStatus;
+  String? _blobDownloadHash; // hash of the blob currently being fetched
+
   // Cell and Command state
   CellInfo? _activeCell;
   List<CommandInfo> _commands = [];
@@ -448,6 +456,13 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
         ),
       ));
       node.startSync();
+      try {
+        node.enableBlobTransfer();
+        _blobEndpointId = node.blobEndpointId();
+        _blobBoundAddr = node.blobBoundAddr();
+      } catch (e) {
+        debugPrint('[peat] blob transfer init failed: $e');
+      }
       _resolveLanIp(); // for the manual peer-connect dial token
       _startBle(node); // auto-start BLE on all platforms
       // Auto-start Wi-Fi Direct on Android too (infra-free LAN for iroh). Still
@@ -1349,6 +1364,8 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       'wifi': Platform.isAndroid && _wifiDirectOn,
       // This node's internet uplink is cellular (mobile data) right now.
       'cellular': _onCellular,
+      if (_blobEndpointId != null) 'blob_endpoint': _blobEndpointId,
+      if (_blobBoundAddr != null) 'blob_addr': _blobBoundAddr,
     });
     if (stableJson != _lastSelfNodeJson) {
       _lastSelfNodeJson = stableJson;
@@ -2443,6 +2460,307 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     );
   }
 
+  // ── Blob / Attachment helpers ───────────────────────────────────────
+
+  void _blobStoreSample() {
+    final node = _node;
+    if (node == null) return;
+    final timestamp = DateTime.now().toIso8601String();
+    final payload = utf8.encode(jsonEncode({
+      'type': 'water_quality_report',
+      'callsign': _callsign,
+      'timestamp': timestamp,
+      'ph': 7.0 + (Random().nextDouble() - 0.5),
+      'turbidity_ntu': (Random().nextDouble() * 5).toStringAsFixed(1),
+      'temperature_c': 18 + Random().nextInt(10),
+      'notes': 'Sample collected by $_callsign at $timestamp',
+    }));
+    try {
+      final hash = node.blobPut(Uint8List.fromList(payload), 'application/json');
+      setState(() {
+        _localBlobs.add((hash: hash, contentType: 'application/json', sizeBytes: payload.length));
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Stored sample → ${hash.substring(0, 12)}…'),
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('blobPut failed: $e'),
+          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+    }
+  }
+
+  void _blobFetchFromPeer(String hashHex, int sizeBytes, String? peerIdHex) {
+    final node = _node;
+    if (node == null) return;
+    _blobDownloadSub?.cancel();
+    setState(() {
+      _blobDownloadHash = hashHex;
+      _blobDownloadStatus = const BlobFetchStatusPending();
+    });
+    if (peerIdHex != null) {
+      try { node.blobAddPeerId(peerIdHex); } catch (_) {}
+    }
+    _blobDownloadSub = node.blobDownload(hashHex, sizeBytes, peerIdHex: peerIdHex).listen(
+      (status) {
+        if (mounted) setState(() => _blobDownloadStatus = status);
+        if (status is BlobFetchStatusCompleted) {
+          setState(() {
+            if (!_localBlobs.any((b) => b.hash == hashHex)) {
+              _localBlobs.add((hash: hashHex, contentType: 'unknown', sizeBytes: sizeBytes));
+            }
+          });
+        }
+      },
+      onError: (e) {
+        if (mounted) setState(() => _blobDownloadStatus = BlobFetchStatusFailed(error: '$e'));
+      },
+      onDone: () {
+        _blobDownloadSub = null;
+      },
+    );
+  }
+
+  void _showFetchDialog() {
+    final hashCtrl = TextEditingController();
+    final sizeCtrl = TextEditingController(text: '1024');
+    final peerCtrl = TextEditingController();
+    // Pre-fill peer endpoint from roster if available
+    final peers = _peerBlobEndpoints();
+    if (peers.isNotEmpty) {
+      peerCtrl.text = peers.first.endpointId;
+    }
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Fetch Blob'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: hashCtrl, decoration: const InputDecoration(labelText: 'Content hash (hex)', isDense: true)),
+            const SizedBox(height: 8),
+            TextField(controller: sizeCtrl, decoration: const InputDecoration(labelText: 'Size (bytes)', isDense: true), keyboardType: TextInputType.number),
+            const SizedBox(height: 8),
+            TextField(controller: peerCtrl, decoration: const InputDecoration(labelText: 'Peer endpoint ID (optional)', isDense: true, hintText: 'omit for mesh-sync')),
+            if (peers.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Wrap(
+                  spacing: 4,
+                  children: peers.map((p) => ActionChip(
+                    label: Text(p.callsign, style: const TextStyle(fontSize: 11)),
+                    onPressed: () => peerCtrl.text = p.endpointId,
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                  )).toList(),
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              final hash = hashCtrl.text.trim();
+              final size = int.tryParse(sizeCtrl.text.trim()) ?? 1024;
+              final peer = peerCtrl.text.trim();
+              if (hash.isNotEmpty) {
+                _blobFetchFromPeer(hash, size, peer.isEmpty ? null : peer);
+              }
+            },
+            child: const Text('Fetch'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<({String callsign, String endpointId})> _peerBlobEndpoints() {
+    final node = _node;
+    if (node == null) return [];
+    final results = <({String callsign, String endpointId})>[];
+    try {
+      final map = jsonDecode(node.crdtKvAll('nodes')) as Map<String, dynamic>;
+      for (final v in map.values) {
+        if (v is! Map<String, dynamic>) continue;
+        final name = v['name'] as String? ?? '';
+        final ep = v['blob_endpoint'] as String?;
+        if (name.isEmpty || ep == null || name == _callsign) continue;
+        results.add((callsign: name, endpointId: ep));
+      }
+    } catch (_) {}
+    return results;
+  }
+
+  Widget _buildAttachmentsCard(ThemeData theme) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              const Icon(Icons.attach_file, size: 16),
+              const SizedBox(width: 6),
+              Text('Attachments',
+                  style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+              const Spacer(),
+              if (_blobEndpointId != null)
+                Tooltip(
+                  message: 'Blob endpoint: ${_blobEndpointId!.substring(0, min(12, _blobEndpointId!.length))}…',
+                  child: Icon(Icons.cloud_done_outlined, size: 14, color: Colors.green.shade400),
+                ),
+            ]),
+            const SizedBox(height: 8),
+
+            // Action buttons
+            Row(children: [
+              FilledButton.tonalIcon(
+                icon: const Icon(Icons.science_outlined, size: 16),
+                label: const Text('Store Sample', style: TextStyle(fontSize: 12)),
+                onPressed: _node != null ? _blobStoreSample : null,
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.download_outlined, size: 16),
+                label: const Text('Fetch', style: TextStyle(fontSize: 12)),
+                onPressed: _node != null ? _showFetchDialog : null,
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ]),
+
+            // Download progress
+            if (_blobDownloadStatus != null) ...[
+              const SizedBox(height: 8),
+              _buildDownloadProgress(theme),
+            ],
+
+            // Local blobs list
+            if (_localBlobs.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text('Local blobs (${_localBlobs.length})',
+                  style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.outline)),
+              const SizedBox(height: 4),
+              ..._localBlobs.reversed.take(5).map((b) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(children: [
+                  Icon(Icons.description_outlined, size: 14, color: theme.colorScheme.outline),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '${b.hash.substring(0, min(16, b.hash.length))}…',
+                      style: theme.textTheme.bodySmall?.copyWith(fontFamily: 'monospace', fontSize: 11),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Text('${b.sizeBytes}B · ${b.contentType}',
+                      style: theme.textTheme.labelSmall?.copyWith(fontSize: 10, color: theme.colorScheme.outline)),
+                  const SizedBox(width: 4),
+                  GestureDetector(
+                    onTap: () {
+                      Clipboard.setData(ClipboardData(text: b.hash));
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('Hash copied'),
+                        duration: Duration(seconds: 1),
+                        behavior: SnackBarBehavior.floating,
+                      ));
+                    },
+                    child: Icon(Icons.copy, size: 14, color: theme.colorScheme.primary),
+                  ),
+                ]),
+              )),
+              if (_localBlobs.length > 5)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text('+ ${_localBlobs.length - 5} more',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                          fontStyle: FontStyle.italic, color: theme.colorScheme.outline)),
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDownloadProgress(ThemeData theme) {
+    final status = _blobDownloadStatus!;
+    final hashShort = _blobDownloadHash != null
+        ? '${_blobDownloadHash!.substring(0, min(8, _blobDownloadHash!.length))}…'
+        : '?';
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceVariant.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            if (status is BlobFetchStatusCompleted)
+              Icon(Icons.check_circle, size: 14, color: Colors.green.shade400)
+            else if (status is BlobFetchStatusFailed)
+              const Icon(Icons.error, size: 14, color: Colors.red)
+            else
+              SizedBox(
+                width: 12, height: 12,
+                child: CircularProgressIndicator(strokeWidth: 1.5, color: theme.colorScheme.primary),
+              ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                switch (status) {
+                  BlobFetchStatusPending() => 'Pending… $hashShort',
+                  BlobFetchStatusStarted(:final totalBytes) => 'Started ($totalBytes B) $hashShort',
+                  BlobFetchStatusDownloading(:final downloadedBytes, :final totalBytes) =>
+                    'Downloading ${downloadedBytes}/${totalBytes} B $hashShort',
+                  BlobFetchStatusCompleted(:final localPath) => 'Complete → $localPath',
+                  BlobFetchStatusFailed(:final error) => 'Failed: $error',
+                  _ => '$status',
+                },
+                style: theme.textTheme.bodySmall?.copyWith(fontSize: 11),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ]),
+          if (status is BlobFetchStatusDownloading) ...[
+            const SizedBox(height: 4),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: LinearProgressIndicator(
+                value: status.totalBytes > 0
+                    ? (status.downloadedBytes / status.totalBytes).clamp(0.0, 1.0)
+                    : null,
+                minHeight: 4,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Color _collectionColor(String collection, ThemeData theme) {
     // Stable color per collection name
     final colors = [
@@ -2672,6 +2990,12 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       // re-syncs on restart; _myLiters (local tally) persists in memory.
       _bleRunning = false;
       _bleFrameCount = 0;
+      _blobEndpointId = null;
+      _blobBoundAddr = null;
+      _blobDownloadSub?.cancel();
+      _blobDownloadSub = null;
+      _blobDownloadStatus = null;
+      _blobDownloadHash = null;
     });
   }
 
@@ -2687,6 +3011,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     _callsignFocus.dispose();
     _peerTokenCtrl.dispose();
     _connSub?.cancel();
+    _blobDownloadSub?.cancel();
     _node?.dispose();
     super.dispose();
   }
@@ -2961,6 +3286,12 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
             if (hasNode) ...[
               const SizedBox(height: 10),
               _buildCommandCard(theme),
+            ],
+
+            // ---- attachments (blob transfer) ----
+            if (hasNode) ...[
+              const SizedBox(height: 10),
+              _buildAttachmentsCard(theme),
             ],
 
             // ---- node roster (primary situational awareness) ----

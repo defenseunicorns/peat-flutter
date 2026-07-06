@@ -22,7 +22,13 @@ export 'src/peat_node.dart'
         CellInfo,
         CellStatus,
         CommandInfo,
-        CommandStatus;
+        CommandStatus,
+        BlobFetchStatus,
+        BlobFetchStatusPending,
+        BlobFetchStatusStarted,
+        BlobFetchStatusDownloading,
+        BlobFetchStatusCompleted,
+        BlobFetchStatusFailed;
 
 /// Opens the peat_ffi native library for the current platform.
 ///

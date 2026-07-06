@@ -29,7 +29,13 @@ export 'generated/peat_ffi.dart'
         CellInfo,
         CellStatus,
         CommandInfo,
-        CommandStatus;
+        CommandStatus,
+        BlobFetchStatus,
+        BlobFetchStatusPending,
+        BlobFetchStatusStarted,
+        BlobFetchStatusDownloading,
+        BlobFetchStatusCompleted,
+        BlobFetchStatusFailed;
 
 final _rng = Random();
 
@@ -69,9 +75,12 @@ class PeatFlutterNode {
   Timer? _changeTimer;
   Timer? _outboundTimer;
   Timer? _syncTimer;
+  Timer? _blobTimer;
   SubscriptionHandle? _subscription;
+  BlobFetchHandle? _blobHandle;
   StreamController<DocumentChange>? _changeCtrl;
   StreamController<OutboundFrame>? _outboundCtrl;
+  StreamController<BlobFetchStatus>? _blobCtrl;
 
   PeatFlutterNode._(this._node);
 
@@ -382,6 +391,91 @@ class PeatFlutterNode {
     return ctrl.stream;
   }
 
+  /// Enable the parallel blob-transfer endpoint (peat#1013). Call once before
+  /// [blobPut]/[blobDownload]. [bindAddr] defaults to an ephemeral port when
+  /// null.
+  void enableBlobTransfer([String? bindAddr]) =>
+      _node.enableBlobTransfer(bindAddr);
+
+  /// Register a known blob peer by hex endpoint id and explicit address.
+  void blobAddPeer(String peerIdHex, String address) =>
+      _node.blobAddPeer(peerIdHex, address);
+
+  /// Register a known blob peer by hex endpoint id only — no static address,
+  /// so relay/DNS discovery resolves the route. Prefer this over
+  /// [blobAddPeer] when the peer may be on a different network/NAT.
+  void blobAddPeerId(String peerIdHex) => _node.blobAddPeerId(peerIdHex);
+
+  /// Store bytes in the local blob store. Returns the content hash as hex.
+  String blobPut(Uint8List data, String contentType) =>
+      _node.blobPut(data, contentType);
+
+  /// Check if a blob exists locally without a network fetch.
+  bool blobExistsLocally(String hashHex) => _node.blobExistsLocally(hashHex);
+
+  /// This node's blob endpoint id as hex, or null if blob transfer is disabled.
+  String? blobEndpointId() => _node.blobEndpointId();
+
+  /// This node's bound blob endpoint address as "ip:port", or null if blob
+  /// transfer is disabled.
+  String? blobBoundAddr() => _node.blobBoundAddr();
+
+  /// Download a blob by content hash (peat#1013), as a broadcast [Stream] of
+  /// progress. Two delivery modes:
+  ///
+  ///  - Mesh-sync (default): omit [peerIdHex] — the mesh's automatic,
+  ///    health-filtered candidate-peer selection tries to fetch the blob from
+  ///    any known peer, independent of when/whether this call is made.
+  ///  - Direct P2P: pass [peerIdHex] to pull straight from that peer,
+  ///    bypassing candidate selection entirely — no fallback to another
+  ///    peer on failure. The peer must already be known via [blobAddPeer] or
+  ///    [blobAddPeerId].
+  ///
+  /// The stream closes itself once a terminal [BlobFetchStatusCompleted] or
+  /// [BlobFetchStatusFailed] status is emitted. Cancelling the stream early
+  /// disposes the underlying fetch (aborts the transfer).
+  Stream<BlobFetchStatus> blobDownload(
+    String hashHex,
+    int sizeBytes, {
+    String? peerIdHex,
+    Duration pollInterval = const Duration(milliseconds: 100),
+  }) {
+    _blobTimer?.cancel();
+    _blobCtrl?.close();
+    if (_blobHandle != null && !_blobHandle!.isClosed) _blobHandle!.dispose();
+    _blobHandle?.close();
+
+    final handle = _node.blobFetchStart(hashHex, sizeBytes, peerIdHex);
+    _blobHandle = handle;
+
+    final ctrl = StreamController<BlobFetchStatus>.broadcast(
+      onCancel: () {
+        _blobTimer?.cancel();
+        // Guard: dispose() may have already cancelled+closed handle
+        // synchronously before this async onCancel fires.
+        if (!handle.isClosed) handle.dispose();
+        handle.close();
+      },
+    );
+    _blobCtrl = ctrl;
+
+    BlobFetchStatus? last;
+    _blobTimer = Timer.periodic(pollInterval, (_) {
+      if (ctrl.isClosed || handle.isClosed) return;
+      final status = handle.status();
+      if (status != last) {
+        ctrl.add(status);
+        last = status;
+      }
+      if (status is BlobFetchStatusCompleted || status is BlobFetchStatusFailed) {
+        _blobTimer?.cancel();
+        ctrl.close();
+      }
+    });
+
+    return ctrl.stream;
+  }
+
   /// Feed a BLE inbound frame (postcard bytes from peat-btle) into the mesh.
   ///
   /// Returns the document ID if the frame was accepted, null if unknown.
@@ -434,10 +528,14 @@ class PeatFlutterNode {
     _changeTimer?.cancel();
     _outboundTimer?.cancel();
     _syncTimer?.cancel();
+    _blobTimer?.cancel();
     _changeCtrl?.close();
     _outboundCtrl?.close();
+    _blobCtrl?.close();
     _subscription?.cancel();
     _subscription?.close();
+    if (_blobHandle != null && !_blobHandle!.isClosed) _blobHandle!.dispose();
+    _blobHandle?.close();
     if (!_node.isClosed) {
       try { _node.stopSync(); } catch (_) {}
       try { _node.stopOutboundFrames(); } catch (_) {}
