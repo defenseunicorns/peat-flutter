@@ -163,6 +163,9 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   BlobFetchStatus? _blobDownloadStatus;
   String? _blobDownloadHash; // hash of the blob currently being fetched
 
+  // Markers (OR-Set with soft-delete tombstones)
+  List<MarkerInfo> _markers = [];
+
   // Cell and Command state
   CellInfo? _activeCell;
   List<CommandInfo> _commands = [];
@@ -476,6 +479,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       _sessionStartMs = DateTime.now().millisecondsSinceEpoch;
       // Seed the displayed total from the (re-synced) shared CRDT counter.
       _refreshCounter(node);
+      _refreshMarkers(node);
       _counterTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
         if (!mounted || _node == null) return;
         _refreshCounter(_node!);
@@ -816,6 +820,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
           }
           return;
         }
+        if (change.collection == 'markers') _refreshMarkers(node);
         // Internal collections shown elsewhere — skip in the feed.
         if (change.collection == 'nodes' || change.collection == 'mission') return;
         final key = '${change.collection}/${change.docId}';
@@ -826,30 +831,38 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
         String? preview;
         try {
           final raw = node.getRaw(change.collection, change.docId);
-          if (raw == null) return; // doc vanished
-          final newHash = raw.hashCode;
-          final knownHash = _contentHashes[key];
-          if (knownHash == newHash) return; // same content, skip
-          _contentHashes[key] = newHash;   // record new hash
-
-          final map = jsonDecode(raw) as Map<String, dynamic>?;
-          if (map != null) {
-            if (change.docId.startsWith('counter-') || change.docId == 'counter') {
-              final inc = map['inc'] as int? ?? 0;
-              final dec = map['dec'] as int? ?? 0;
-              final by = map['by'] as String? ?? '';
-              preview = 'value: ${inc - dec}  ·  by: $by';
+          if (raw == null) {
+            if (change.changeType == ChangeType.delete) {
+              _contentHashes.remove(key);
+              preview = '(deleted)';
             } else {
-              preview = map.entries
-                  .take(3)
-                  .map((e) {
-                    final v = e.value?.toString() ?? 'null';
-                    return '${e.key}: ${v.length > 20 ? '${v.substring(0, 20)}…' : v}';
-                  })
-                  .join('  ·  ');
+              return;
             }
           } else {
-            preview = raw.length > 60 ? '${raw.substring(0, 60)}…' : raw;
+            final newHash = raw.hashCode;
+            final knownHash = _contentHashes[key];
+            if (knownHash == newHash) return; // same content, skip
+            _contentHashes[key] = newHash;   // record new hash
+
+            final map = jsonDecode(raw) as Map<String, dynamic>?;
+            if (map != null) {
+              if (change.docId.startsWith('counter-') || change.docId == 'counter') {
+                final inc = map['inc'] as int? ?? 0;
+                final dec = map['dec'] as int? ?? 0;
+                final by = map['by'] as String? ?? '';
+                preview = 'value: ${inc - dec}  ·  by: $by';
+              } else {
+                preview = map.entries
+                    .take(3)
+                    .map((e) {
+                      final v = e.value?.toString() ?? 'null';
+                      return '${e.key}: ${v.length > 20 ? '${v.substring(0, 20)}…' : v}';
+                    })
+                    .join('  ·  ');
+              }
+            } else {
+              preview = raw.length > 60 ? '${raw.substring(0, 60)}…' : raw;
+            }
           }
         } catch (_) {
           return;
@@ -904,6 +917,13 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
           _missionSetBy = by;
         });
       }
+    } catch (_) {}
+  }
+
+  void _refreshMarkers(PeatFlutterNode node) {
+    try {
+      final all = node.markers;
+      if (mounted) setState(() => _markers = all);
     } catch (_) {}
   }
 
@@ -1286,6 +1306,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
         _crdtReasmTs.clear();
         _claimedCommandIds.clear();
         _commands = [];
+        _markers = [];
         _activeCell = null;
         _missionDays = 0;
         _missionSetBy = null;
@@ -2703,6 +2724,120 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     );
   }
 
+  Widget _buildMarkersCard(ThemeData theme) {
+    final node = _node!;
+    final live = _markers.where((m) => !m.deleted).toList();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Icon(Icons.place, size: 18, color: theme.colorScheme.primary),
+              const SizedBox(width: 6),
+              Text('Markers (${live.length})',
+                  style: theme.textTheme.labelMedium
+                      ?.copyWith(fontWeight: FontWeight.bold)),
+              const Spacer(),
+              IconButton(
+                icon: const Icon(Icons.add_location_alt, size: 20),
+                tooltip: 'Drop pin at random location',
+                onPressed: () {
+                  final rng = Random();
+                  final uid = '${DateTime.now().millisecondsSinceEpoch}-${rng.nextInt(0xFFFF).toRadixString(16).padLeft(4, '0')}';
+                  node.putMarker(MarkerInfo(
+                    uid: uid,
+                    markerType: 'b-m-p-w',
+                    lat: 38.88 + rng.nextDouble() * 0.02 - 0.01,
+                    lon: -77.02 + rng.nextDouble() * 0.02 - 0.01,
+                    hae: null,
+                    ts: DateTime.now().millisecondsSinceEpoch,
+                    callsign: _callsign.isNotEmpty ? _callsign : null,
+                    color: null,
+                    cellId: null,
+                    deleted: false,
+                  ));
+                  _refreshMarkers(node);
+                },
+              ),
+            ]),
+            if (live.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text('No markers — tap + to drop a pin.',
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: theme.colorScheme.outline)),
+              )
+            else
+              ...live.map((m) {
+                final who = m.callsign ?? '?';
+                final when = DateTime.fromMillisecondsSinceEpoch(m.ts);
+                final ago = DateTime.now().difference(when);
+                final agoStr = ago.inMinutes < 1
+                    ? 'now'
+                    : ago.inMinutes < 60
+                        ? '${ago.inMinutes}m ago'
+                        : '${ago.inHours}h ago';
+                return Dismissible(
+                  key: ValueKey(m.uid),
+                  direction: DismissDirection.endToStart,
+                  background: Container(
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.only(right: 16),
+                    color: Colors.red.shade400,
+                    child: const Icon(Icons.delete, color: Colors.white),
+                  ),
+                  onDismissed: (_) {
+                    node.putMarker(MarkerInfo(
+                      uid: m.uid,
+                      markerType: m.markerType,
+                      lat: m.lat,
+                      lon: m.lon,
+                      hae: m.hae,
+                      ts: m.ts,
+                      callsign: m.callsign,
+                      color: m.color,
+                      cellId: m.cellId,
+                      deleted: true,
+                    ));
+                    _refreshMarkers(node);
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(children: [
+                      Icon(Icons.location_on, size: 16,
+                          color: theme.colorScheme.primary.withOpacity(0.7)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${m.lat.toStringAsFixed(4)}, ${m.lon.toStringAsFixed(4)}',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                fontFamily: 'monospace',
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Text('$who · $agoStr · ${m.markerType}',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                    color: theme.colorScheme.outline)),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.chevron_left, size: 16,
+                          color: theme.colorScheme.outline.withOpacity(0.4)),
+                    ]),
+                  ),
+                );
+              }),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildDownloadProgress(ThemeData theme) {
     final status = _blobDownloadStatus!;
     final hashShort = _blobDownloadHash != null
@@ -3292,6 +3427,12 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
             if (hasNode) ...[
               const SizedBox(height: 10),
               _buildAttachmentsCard(theme),
+            ],
+
+            // ---- markers (OR-Set map pins) ----
+            if (hasNode) ...[
+              const SizedBox(height: 10),
+              _buildMarkersCard(theme),
             ],
 
             // ---- node roster (primary situational awareness) ----

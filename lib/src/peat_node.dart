@@ -35,7 +35,8 @@ export 'generated/peat_ffi.dart'
         BlobFetchStatusStarted,
         BlobFetchStatusDownloading,
         BlobFetchStatusCompleted,
-        BlobFetchStatusFailed;
+        BlobFetchStatusFailed,
+        MarkerInfo;
 
 final _rng = Random();
 
@@ -144,6 +145,20 @@ class PeatFlutterNode {
   /// Remove a stale node entry from the local store.
   void deleteNode(String nodeId) =>
       _node.deleteDocument('nodes', nodeId);
+
+  /// Delete a document by collection and id. Propagates across the mesh.
+  void deleteDocument(String collection, String docId) =>
+      _node.deleteDocument(collection, docId);
+
+  // ── Markers ───────────────────────────────────────────────────────────
+
+  /// Place or update a map marker (OR-Set entry). To soft-delete, publish a
+  /// [MarkerInfo] with `deleted: true` — the tombstone propagates via CRDT.
+  void putMarker(MarkerInfo marker) => _node.putMarker(marker);
+
+  /// All markers known to the mesh, including soft-deleted tombstones.
+  /// Filter on [MarkerInfo.deleted] to show only live pins.
+  List<MarkerInfo> get markers => _node.getMarkers();
 
   // ── Cell ──────────────────────────────────────────────────────────────
 
