@@ -7,6 +7,7 @@ import 'dart:io';
 export 'src/peat_node.dart'
     show
         PeatFlutterNode,
+        PeatFlutterProxyError,
         NodeConfig,
         TransportConfigFFI,
         DocumentChange,

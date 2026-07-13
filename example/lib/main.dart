@@ -359,7 +359,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
         _onCellular = onCell;
         if (mounted) setState(() {});
         // Push the new uplink state to peers right away.
-        if (_node != null) _publishSelf(_node!);
+        if (_node != null) unawaited(_publishSelf(_node!));
       }
     }
 
@@ -435,7 +435,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       // applied at node start (toggling restarts the node). Default OFF keeps
       // the local-only mesh posture.
       _irohRelayOn = prefs.getBool(_kIrohRelayPref) ?? false;
-      final node = PeatFlutterNode.create(NodeConfig(
+      final node = await PeatFlutterNode.create(NodeConfig(
         appId: 'peat-flutter-example',
         // Test-only shared key. Replace with a real base64-encoded 32-byte key:
         //   openssl rand -base64 32
@@ -458,16 +458,16 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
           enableN0Relay: _irohRelayOn,
         ),
       ));
-      node.startSync();
+      await node.startSync();
       try {
-        node.enableBlobTransfer();
-        _blobEndpointId = node.blobEndpointId();
-        _blobBoundAddr = node.blobBoundAddr();
+        await node.enableBlobTransfer();
+        _blobEndpointId = await node.blobEndpointId();
+        _blobBoundAddr = await node.blobBoundAddr();
       } catch (e) {
         debugPrint('[peat] blob transfer init failed: $e');
       }
       _resolveLanIp(); // for the manual peer-connect dial token
-      _startBle(node); // auto-start BLE on all platforms
+      await _startBle(node); // auto-start BLE on all platforms
       // Auto-start Wi-Fi Direct on Android too (infra-free LAN for iroh). Still
       // pops the one-time "invite to connect" prompt the first time.
       if (Platform.isAndroid && !_wifiDirectOn) {
@@ -478,12 +478,12 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
 
       _sessionStartMs = DateTime.now().millisecondsSinceEpoch;
       // Seed the displayed total from the (re-synced) shared CRDT counter.
-      _refreshCounter(node);
-      _refreshMarkers(node);
-      _counterTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      unawaited(_refreshCounter(node));
+      unawaited(_refreshMarkers(node));
+      _counterTimer = Timer.periodic(const Duration(milliseconds: 500), (_) async {
         if (!mounted || _node == null) return;
-        _refreshCounter(_node!);
-        _refreshMission(_node!);
+        await _refreshCounter(_node!);
+        await _refreshMission(_node!);
       });
 
       // Restore my capabilities from MY node document in the store (the Peat
@@ -491,8 +491,9 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       // before the first _publishSelf so stored caps win over the platform
       // default. A database reset wipes the store, so this finds nothing and
       // falls through to the default — exactly the desired reset behavior.
-      final selfCaps = node.nodes
-          .where((n) => n.id == node.nodeId && n.capabilities.isNotEmpty)
+      final myId = await node.nodeId;
+      final selfCaps = (await node.nodes)
+          .where((n) => n.id == myId && n.capabilities.isNotEmpty)
           .toList();
       if (selfCaps.isNotEmpty) {
         _myCapabilities = selfCaps.first.capabilities;
@@ -503,8 +504,8 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       // immediately on start, so a node that just restarted pushes its own
       // state to the peer near-instantly (rather than waiting for the first
       // heartbeat). The peer's state comes back via its heartbeat re-advertise.
-      _publishSelf(node);
-      _flushMyCounter(node);
+      await _publishSelf(node);
+      await _flushMyCounter(node);
 
       // Auto-reconnect remembered peers so a relaunch re-forms the mesh without
       // re-scanning a QR. Non-blocking (connectPeerNowait); delayed a touch so
@@ -515,8 +516,9 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
 
       var _heartbeatTick = 0;
       var _catchupRotor = 0; // round-robins catch-up broadcasts, one per beat
-      _peerTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      _peerTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
         if (!mounted || _node == null) return;
+        final node = _node!;
         // Re-publish self every 2 min to keep heartbeat fresh for peers.
         _heartbeatTick++;
         if (_heartbeatTick >= 2) { // 2 × 2s = 4s. Bounds comms-recovery
@@ -529,7 +531,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
           _heartbeatTick = 0;
           // Keep presence fresh (change-detected: only emits a CRDT frame when
           // identity/caps actually change, so it's cheap on a steady state).
-          _publishSelf(_node!);
+          await _publishSelf(node);
           // The SMALL, time-critical docs re-broadcast EVERY beat (4s): a peer
           // on a slightly lossier path needs frequent re-sends to collect all
           // fragments of a multi-fragment doc (the counter is one fragment so it
@@ -539,17 +541,17 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
           // presence, mission, cell) round-robin every ~16s — they change rarely
           // and also broadcast immediately on change, so the slow catch-up is
           // fine and keeps the channel from saturating.
-          _flushMyCounter(_node!); // shared counter — small, every beat
-          _broadcastCrdt('commands', _node!.crdtKvSnapshot('commands')); // every beat
+          await _flushMyCounter(node); // shared counter — small, every beat
+          await _broadcastCrdt('commands', await node.crdtKvSnapshot('commands')); // every beat
           switch (_catchupRotor % 2) {
             case 0:
-              _broadcastCrdt('nodes', _node!.crdtKvSnapshot('nodes'));
+              await _broadcastCrdt('nodes', await node.crdtKvSnapshot('nodes'));
               break;
             case 1:
               // Only the SETTER re-broadcasts the mission (avoid concurrent
               // writes to the shared 'objective' that flash on the leader).
               if (_missionDays > 0 && _missionSetBy == _callsign) {
-                _republishMission(_node!);
+                await _republishMission(node);
               }
               // Leader re-broadcasts the EXISTING committed cell (idempotent);
               // it does NOT auto-change membership (curated via Reform/Add/Remove).
@@ -561,15 +563,15 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
           _catchupRotor++;
         }
         // Clean up ghost entries that may have synced in from the peer.
-        _cleanGhostNodes(_node!);
+        await _cleanGhostNodes(node);
         // Connections source = UNION of the local connection-based store and the
         // CRDT presence doc (which relays mesh-wide, so it carries the nodes the
         // connection-based path misses — e.g. the iPad on the Androids). CRDT
         // entries win per id (always named). Per-device: direct + multi-hop.
-        final crdtNodes = _crdtNodes(_node!);
+        final crdtNodes = await _crdtNodes(node);
         final crdtIds = crdtNodes.map((n) => n.id).toSet();
         final unionById = <String, NodeInfo>{};
-        for (final n in _node!.nodes) {
+        for (final n in await node.nodes) {
           unionById[n.id] = n;
         }
         for (final n in crdtNodes) {
@@ -578,7 +580,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
         final unionNodes = unionById.values.toList();
         // Refresh cell + command state.
         try {
-          final cmds = _readCommands(_node!); // from the CRDT KV doc, not lite
+          final cmds = await _readCommands(node); // from the CRDT KV doc, not lite
           for (final c in cmds) {
             // Requestor receives its resupply: when MY request is fulfilled,
             // credit MY holdings entry +qty once (the transfer-in). It's a CRDT
@@ -592,12 +594,12 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
                 c.createdAt >= _sessionStartMs &&
                 _claimedReqs.add(c.id)) {
               final qty = _parseParams(c.parameters)['quantity'] as int? ?? 0;
-              if (qty > 0) _adjustCounter(_node, qty);
+              if (qty > 0) await _adjustCounter(node, qty);
             }
           }
           // Cell membership comes from the SYNCED cell doc's `members` list,
           // read as generic JSON (the typed `cells` accessor doesn't carry it).
-          final cellFields = _docFields(_node!.getRaw('cells', _cellDocId));
+          final cellFields = _docFields(await node.getRaw('cells', _cellDocId));
           // node id -> callsign, for resolving the roster + available nodes.
           // Skip incomplete/ghost node docs (empty name or name == id).
           final names = <String, String>{
@@ -616,7 +618,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
               .map((m) => m == _nodeId ? _callsign : (names[m] ?? m))
               .where((m) => !_looksLikeNodeId(m))
               .toSet();
-          final cells = _node!.cells;
+          final cells = await node.cells;
           if (mounted) setState(() {
             _activeCell = cells.isNotEmpty ? cells.first : null;
             _commands = cmds;
@@ -632,15 +634,24 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
           // propagates to every node. Claiming here too would double-count.)
         } catch (_) {}
 
+        // Resolve async node reads BEFORE the synchronous setState below —
+        // setState's callback must run synchronously, so every value it needs
+        // off the node is captured into a local first.
+        final peersNow = await node.connectedPeers;
+        final syncStatsNow = await node.syncStats;
+        final endpointAddrNow = await node.endpointAddr;
+        final endpointSocketAddrNow = await node.endpointSocketAddr;
+        final hbNodes = await node.nodes;
+
         setState(() {
-          _peers = _node!.connectedPeers;
-          _syncStats = _node!.syncStats;
-          _endpointAddr = _node!.endpointAddr;
-          _endpointSocketAddr = _node!.endpointSocketAddr;
+          _peers = peersNow;
+          _syncStats = syncStatsNow;
+          _endpointAddr = endpointAddrNow;
+          _endpointSocketAddr = endpointSocketAddrNow;
           // BLE peers aren't in the iroh connected-set; poll the native bridge.
           // Both Android and iOS expose blePeerCount over the same channel.
           if ((Platform.isAndroid || Platform.isIOS || Platform.isMacOS) && _bleRunning) {
-            _bleChannel.invokeMethod<int>('blePeerCount').then((c) {
+            _bleChannel.invokeMethod<int>('blePeerCount').then((c) async {
               if (mounted && c != null && c != _blePeerCount) {
                 final rising = _blePeerCount == 0 && c > 0;
                 final grew = c > _blePeerCount; // any new peer (incl. 3rd node)
@@ -651,11 +662,11 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
                 // (not just 0->N) so a 3rd node joining an existing pair still
                 // triggers the existing nodes to re-push.
                 if (grew && _node != null) {
-                  _publishSelf(_node!);
+                  await _publishSelf(_node!);
                   // Force a presence snapshot now (bypass _publishSelf's change-
                   // detect gate) so the new peer learns our callsign at once.
-                  _broadcastCrdt('nodes', _node!.crdtKvSnapshot('nodes'));
-                  _flushMyCounter(_node!);
+                  await _broadcastCrdt('nodes', await _node!.crdtKvSnapshot('nodes'));
+                  await _flushMyCounter(_node!);
                 }
                 // Heavier leader-owned re-publish only on the 0->N edge.
                 if (rising && _node != null) {
@@ -664,7 +675,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
                   // before this peer connected would never reach it). Only the
                   // mission's setter re-publishes it (avoid concurrent writes).
                   if (_missionDays > 0 && _missionSetBy == _callsign) {
-                    _republishMission(_node!);
+                    await _republishMission(_node!);
                   }
                   // Re-broadcast the EXISTING committed cell so the just-joined
                   // peer converges — do NOT auto-form/mutate membership here.
@@ -717,7 +728,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
           // connectedPeers set) still registers as live here. Without this the
           // acceptor showed the dialer offline while the dialer showed us online.
           final maxHb = <String, int>{};
-          for (final n in _node!.nodes) {
+          for (final n in hbNodes) {
             if (n.lastHeartbeat > (maxHb[n.id] ?? 0)) maxHb[n.id] = n.lastHeartbeat;
           }
           for (final n in crdtNodes) {
@@ -784,8 +795,8 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       // are silent. Only new content (new doc or mutation) shows in the feed.
       for (final col in ['test', 'demo']) {
         try {
-          for (final id in node.listDocuments(col)) {
-            final raw = node.getRaw(col, id);
+          for (final id in await node.listDocuments(col)) {
+            final raw = await node.getRaw(col, id);
             if (raw != null) _contentHashes['$col/$id'] = raw.hashCode;
           }
         } catch (_) {}
@@ -793,7 +804,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       // Clear the feed so this session starts fresh.
       setState(() => _changeLog.clear());
 
-      final sub = node.subscribeChanges().listen((change) {
+      final sub = node.subscribeChanges().listen((change) async {
         if (!mounted) return;
         // CRDT-KV bridge: a peer published one of its crdt_kv snapshots over the
         // node/Iroh mesh (see _broadcastCrdt). Merge it back into our local
@@ -803,13 +814,13 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
           try {
             // Node-published docs are wrapped as {id, fields:{...}}; _docFields
             // unwraps to the fields we set in _broadcastCrdt.
-            final fields = _docFields(node.getRaw(change.collection, change.docId));
+            final fields = _docFields(await node.getRaw(change.collection, change.docId));
             final coll = fields?['coll'] as String?;
             final hex = fields?['hex'] as String?;
             if (coll != null && hex != null && hex.isNotEmpty) {
-              node.crdtKvMerge(coll, hex);
-              _refreshCounter(node); // holdings (water) total
-              _refreshMission(node); // mission objective
+              await node.crdtKvMerge(coll, hex);
+              await _refreshCounter(node); // holdings (water) total
+              await _refreshMission(node); // mission objective
               if (mounted) setState(() {}); // commands list re-reads in build
             }
           } catch (e) {
@@ -820,7 +831,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
           }
           return;
         }
-        if (change.collection == 'markers') _refreshMarkers(node);
+        if (change.collection == 'markers') await _refreshMarkers(node);
         // Internal collections shown elsewhere — skip in the feed.
         if (change.collection == 'nodes' || change.collection == 'mission') return;
         final key = '${change.collection}/${change.docId}';
@@ -830,7 +841,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
         // docs while still showing updates from the other device.
         String? preview;
         try {
-          final raw = node.getRaw(change.collection, change.docId);
+          final raw = await node.getRaw(change.collection, change.docId);
           if (raw == null) {
             if (change.changeType == ChangeType.delete) {
               _contentHashes.remove(key);
@@ -879,9 +890,10 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
         });
       });
 
+      final myNodeId = await node.nodeId;
       setState(() {
         _node = node;
-        _nodeId = node.nodeId;
+        _nodeId = myNodeId;
         _changeSub = sub;
         _starting = false;
       });
@@ -899,13 +911,13 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   }
 
 
-  void _refreshMission(PeatFlutterNode node) {
+  Future<void> _refreshMission(PeatFlutterNode node) async {
     try {
       // Mission rides the CRDT relay (same as counter/commands): the leader is
       // the only writer of the 'objective' key, so there's no LWW conflict, and
       // it converges mesh-wide (incl. relay-only followers) — unlike the old
       // connection-based publishDoc path, which didn't reach every node.
-      final map = jsonDecode(node.crdtKvAll(_missionCollection))
+      final map = jsonDecode(await node.crdtKvAll(_missionCollection))
           as Map<String, dynamic>;
       final f = map[_missionDocId];
       if (f is! Map<String, dynamic>) return;
@@ -920,14 +932,14 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     } catch (_) {}
   }
 
-  void _refreshMarkers(PeatFlutterNode node) {
+  Future<void> _refreshMarkers(PeatFlutterNode node) async {
     try {
-      final all = node.markers;
+      final all = await node.markers;
       if (mounted) setState(() => _markers = all);
     } catch (_) {}
   }
 
-  void _setMission(PeatFlutterNode node, int days) {
+  Future<void> _setMission(PeatFlutterNode node, int days) async {
     final json = jsonEncode({
       'id': _missionDocId,
       'days': days,
@@ -937,8 +949,8 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     // CRDT relay (fragmented 0xAF frame): converges to every node, including
     // relay-only followers. Leader is the sole writer of 'objective'.
     try {
-      final hex = node.crdtKvPut(_missionCollection, _missionDocId, json);
-      _broadcastCrdt(_missionCollection, hex);
+      final hex = await node.crdtKvPut(_missionCollection, _missionDocId, json);
+      await _broadcastCrdt(_missionCollection, hex);
     } catch (_) {}
     setState(() {
       _missionDays = days;
@@ -950,12 +962,12 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   /// Re-broadcast the current mission without mutating local state. Used by the
   /// peer-connect trigger so a peer that joined after the mission was set still
   /// receives it (the fan-out only emits on change).
-  void _republishMission(PeatFlutterNode node) {
+  Future<void> _republishMission(PeatFlutterNode node) async {
     if (_missionDays <= 0) return;
     // Idempotent catch-up re-broadcast of the current mission CRDT snapshot so
     // a peer that joined after it was set still converges.
     try {
-      _broadcastCrdt(_missionCollection, node.crdtKvSnapshot(_missionCollection));
+      await _broadcastCrdt(_missionCollection, await node.crdtKvSnapshot(_missionCollection));
     } catch (_) {}
   }
 
@@ -1077,7 +1089,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   // Returns the dialed peer's node id, or null if the token was invalid or the
   // dial threw. Set [announce] false to suppress the "Dialing…" toast (the scan
   // flow shows its own "Connecting…" progress instead).
-  String? _connectToPeerToken(String token, {bool announce = true}) {
+  Future<String?> _connectToPeerToken(String token, {bool announce = true}) async {
     final node = _node;
     if (node == null) return null;
     // 1) Decode + validate the token shape (separate from the dial, so a real
@@ -1108,7 +1120,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     debugPrint('[dial] id=${id.substring(0, 8)} addr=$addr '
         'relay=$relay useRelay=$useRelay');
     try {
-      node.connectPeer(
+      await node.connectPeer(
         nodeId: id,
         addresses: (addr != null && addr.isNotEmpty) ? [addr] : const [],
         relayUrl: useRelay ? relay : null,
@@ -1125,8 +1137,8 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     }
     // Push our state to the freshly-dialed peer right away; the 5s periodic
     // requestSync (started with the node) pulls theirs.
-    _publishSelf(node);
-    _flushMyCounter(node);
+    await _publishSelf(node);
+    await _flushMyCounter(node);
     _rememberPeer(id, ''); // remember for auto-reconnect (name fills in later)
     _peerTokenCtrl.clear();
     if (announce && mounted) {
@@ -1151,7 +1163,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     if (code == null || code.isEmpty || !mounted) return;
     _peerTokenCtrl.text = code;
     // Issue the dial; the scan flow shows its own progress so suppress the toast.
-    final peerId = _connectToPeerToken(code, announce: false);
+    final peerId = await _connectToPeerToken(code, announce: false);
     if (peerId == null || !mounted) return; // error already surfaced
 
     // Blocking "Connecting…" dialog while iroh establishes the link. iroh's dial
@@ -1178,7 +1190,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       // ~12s
       await Future.delayed(const Duration(milliseconds: 500));
       if (!mounted) return;
-      final peers = _node?.connectedPeers ?? const [];
+      final peers = _node != null ? await _node!.connectedPeers : const <String>[];
       if (peers.contains(peerId) || _roster.any((n) => n.id == peerId)) {
         connected = true;
         break;
@@ -1262,11 +1274,11 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       if (seen != null && now - seen <= _kLivenessWindowMs) continue; // online
       if (!force && now - (_lastRedialMs[id] ?? 0) < 15000) continue; // per-peer throttle
       _lastRedialMs[id] = now;
-      try {
-        // Non-blocking: the dial runs on the native runtime, so we can fire for
-        // every offline known peer each sweep without freezing the UI isolate.
-        node.connectPeerNowait(nodeId: id); // relay/pkarr discovery resolves the rest
-      } catch (_) {}
+      // Non-blocking: the dial runs on the native runtime, so we can fire for
+      // every offline known peer each sweep without freezing the UI isolate.
+      unawaited(
+        node.connectPeerNowait(nodeId: id).catchError((_) {}), // relay/pkarr discovery resolves the rest
+      );
     }
   }
 
@@ -1328,9 +1340,9 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     }
   }
 
-  void _publishSelf(PeatFlutterNode node) {
-    final id = node.nodeId;
-    _cleanGhostNodes(node);
+  Future<void> _publishSelf(PeatFlutterNode node) async {
+    final id = await node.nodeId;
+    await _cleanGhostNodes(node);
     // Publish capabilities through the NODE layer (not putNode). putNode writes
     // a flat shape straight to storage_backend, which the fan-out doesn't
     // observe — so peers received an empty/id-only node and (on iOS) no frame
@@ -1348,22 +1360,21 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       'last_heartbeat': DateTime.now().millisecondsSinceEpoch,
     });
     if (Platform.isAndroid) {
-      _bleChannel.invokeMethod('publishDoc',
+      unawaited(_bleChannel.invokeMethod('publishDoc',
           {'collection': 'nodes', 'json': json}).catchError((_) {
-        node.publishSelf(nodeId: id, name: _callsign, capabilities: _myCapabilities);
-        return null;
-      });
+        return node.publishSelf(nodeId: id, name: _callsign, capabilities: _myCapabilities);
+      }));
     } else if (Platform.isIOS || Platform.isMacOS) {
       // iOS/macOS: publish via the Dart node layer directly (no JNI channel).
       // This is what reaches startOutboundFrames -> BLE; publishRaw/publishSelf
       // write to storage_backend and emit nothing.
       try {
-        node.publishDocument('nodes', json);
+        await node.publishDocument('nodes', json);
       } catch (_) {
-        node.publishSelf(nodeId: id, name: _callsign, capabilities: _myCapabilities);
+        await node.publishSelf(nodeId: id, name: _callsign, capabilities: _myCapabilities);
       }
     } else {
-      node.publishSelf(nodeId: id, name: _callsign, capabilities: _myCapabilities);
+      await node.publishSelf(nodeId: id, name: _callsign, capabilities: _myCapabilities);
     }
     // Presence over the CRDT relay: write self into the `nodes` doc (callsign-
     // keyed) and broadcast over the fragmented 0xAF frame — the transport that
@@ -1391,16 +1402,16 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     if (stableJson != _lastSelfNodeJson) {
       _lastSelfNodeJson = stableJson;
       try {
-        final hex = node.crdtKvPut('nodes', _callsign, stableJson);
-        _broadcastCrdt('nodes', hex);
+        final hex = await node.crdtKvPut('nodes', _callsign, stableJson);
+        await _broadcastCrdt('nodes', hex);
       } catch (_) {}
     }
     // Persist callsign so it survives app restarts
-    SharedPreferences.getInstance()
-        .then((p) => p.setString('callsign', _callsign));
+    unawaited(SharedPreferences.getInstance()
+        .then((p) => p.setString('callsign', _callsign)));
   }
 
-  void _cleanGhostNodes(PeatFlutterNode node) {
+  Future<void> _cleanGhostNodes(PeatFlutterNode node) async {
     // Remove ONLY structurally-invalid entries (bad/placeholder node id).
     //
     // We deliberately do NOT delete by "name == _hostName": `_hostName` is a
@@ -1410,10 +1421,10 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     // same-callsign entries is already handled for display by the `byName`
     // map in the roster builder, so name-based deletion is both unsafe and
     // redundant.
-    for (final n in node.nodes) {
+    for (final n in await node.nodes) {
       final isGhost = n.id.length < 16 || n.id == 'unknown';
       if (isGhost) {
-        try { node.deleteNode(n.id); } catch (_) {}
+        try { await node.deleteNode(n.id); } catch (_) {}
       }
     }
   }
@@ -1439,10 +1450,10 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   // Read the per-node holdings CRDT doc ({callsign: liters}). Returns this
   // node's own entry ("yours") and the SUM of all entries ("total") — both from
   // synced CRDT state, so they survive restarts and converge mesh-wide.
-  ({int mine, int total}) _readHoldings(PeatFlutterNode node) {
+  Future<({int mine, int total})> _readHoldings(PeatFlutterNode node) async {
     int mine = 0, total = 0;
     try {
-      final map = jsonDecode(node.crdtKvAll(_holdingsCollection))
+      final map = jsonDecode(await node.crdtKvAll(_holdingsCollection))
           as Map<String, dynamic>;
       for (final e in map.entries) {
         final v = (e.value is num)
@@ -1455,11 +1466,11 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     return (mine: mine, total: total);
   }
 
-  void _refreshCounter(PeatFlutterNode node) {
+  Future<void> _refreshCounter(PeatFlutterNode node) async {
     // Inbound CRDT frames merge on receipt; here we surface yours + total from
     // the holdings doc. When all nodes' logs settle on the same total, the mesh
     // has converged.
-    final h = _readHoldings(node);
+    final h = await _readHoldings(node);
     if (h.mine != _myLiters || h.total != _crdtTotal) {
       if (mounted) setState(() {
         _myLiters = h.mine;
@@ -1469,8 +1480,8 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   }
 
   // Catch-up re-broadcast of the holdings CRDT doc (small; idempotent merge).
-  void _flushMyCounter(PeatFlutterNode node) =>
-      _broadcastCrdt(_holdingsCollection, node.crdtKvSnapshot(_holdingsCollection));
+  Future<void> _flushMyCounter(PeatFlutterNode node) async =>
+      await _broadcastCrdt(_holdingsCollection, await node.crdtKvSnapshot(_holdingsCollection));
 
   static const int _kCrdtTransport = 2; // matches BleBridge.kt TRANSPORT_CRDT
 
@@ -1491,7 +1502,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   // Max chunk so 3(env) + collLen(<=8) + 6(frag hdr) + chunk <= 512. 480 leaves margin.
   static const int _kCrdtChunk = 480;
 
-  void _broadcastCrdt(String collection, String hex) {
+  Future<void> _broadcastCrdt(String collection, String hex) async {
     final coll = utf8.encode(collection);
     final payload = utf8.encode(hex); // hex string as bytes
     // Content-addressed message id (FNV-1a 32-bit over the payload).
@@ -1535,12 +1546,12 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     final node = _node;
     if (node != null) {
       try {
-        final snapHex = node.crdtKvSnapshot(collection);
+        final snapHex = await node.crdtKvSnapshot(collection);
         // Key the bridge doc per (sender, collection) so two nodes don't clobber
         // a shared doc id — each publishes its own snapshot and the receiver
         // merges them independently (mirrors how the `nodes` doc is callsign-
         // keyed). `coll` carries the real target collection for the merge.
-        node.publishDocument(
+        await node.publishDocument(
           _kCrdtBridgeCollection,
           jsonEncode({
             'id': '$collection@$_callsign',
@@ -1603,20 +1614,20 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     return utf8.decode(buf.toBytes());
   }
 
-  void _writeCounter(PeatFlutterNode? node, bool increment) =>
+  Future<void> _writeCounter(PeatFlutterNode? node, bool increment) =>
       _adjustCounter(node, increment ? 1 : -1);
 
   /// Apply [delta] liters to THIS node's holdings entry in the CRDT doc and
   /// broadcast it. "yours" = my entry, "total" = sum of all entries — so a +/-
   /// here moves the total by delta, and a transfer (fulfill) is +qty on the
   /// requestor's entry / -qty on the leader's, leaving the sum unchanged.
-  void _adjustCounter(PeatFlutterNode? node, int delta) {
+  Future<void> _adjustCounter(PeatFlutterNode? node, int delta) async {
     if (node == null) return;
-    final h = _readHoldings(node);
+    final h = await _readHoldings(node);
     final newMine = h.mine + delta;
     final hex =
-        node.crdtKvPut(_holdingsCollection, _callsign, newMine.toString());
-    _broadcastCrdt(_holdingsCollection, hex);
+        await node.crdtKvPut(_holdingsCollection, _callsign, newMine.toString());
+    await _broadcastCrdt(_holdingsCollection, hex);
     if (mounted) {
       setState(() {
         _myLiters = newMine;
@@ -1632,7 +1643,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   // it no longer auto-tracks the roster.
   void _formCell() {
     final members = _roster.map((n) => n.name).toSet();
-    _publishCell(members);
+    unawaited(_publishCell(members));
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text('Alpha Cell reformed — ${members.length} member'
@@ -1644,24 +1655,25 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   }
 
   // "Add": include a node (by callsign) in the committed cell.
-  void _addToCell(String callsign) => _publishCell({..._cellMembers, callsign});
+  void _addToCell(String callsign) =>
+      unawaited(_publishCell({..._cellMembers, callsign}));
 
   // "Remove": drop a node (by callsign) from the committed cell.
   void _removeFromCell(String callsign) =>
-      _publishCell({..._cellMembers}..remove(callsign));
+      unawaited(_publishCell({..._cellMembers}..remove(callsign)));
 
   // Steady re-advertise of the EXISTING membership (idempotent — no change).
   // Lets a reconnecting peer converge without the leader mutating the cell.
   void _republishCell() {
     if (_cellMembers.isEmpty) return;
-    _publishCell(Set.of(_cellMembers));
+    unawaited(_publishCell(Set.of(_cellMembers)));
   }
 
   // Publish the cell doc with an EXPLICIT member set. The `members` list is the
   // source of truth for membership (every node reads it back from the synced
   // doc); node_count / capabilities / leader are derived from it. A member that
   // isn't currently in the roster (offline peer) still counts toward membership.
-  void _publishCell(Set<String> memberCallsigns) {
+  Future<void> _publishCell(Set<String> memberCallsigns) async {
     final node = _node;
     if (node == null || memberCallsigns.isEmpty) return;
     final byCallsign = {for (final n in _roster) n.name: n};
@@ -1715,11 +1727,10 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       'scenario_command': null,
     });
     if (Platform.isAndroid) {
-      _bleChannel.invokeMethod('publishDoc',
+      unawaited(_bleChannel.invokeMethod('publishDoc',
           {'collection': 'cells', 'json': cellJson}).catchError((_) {
-        node.putCell(cell);
-        return null;
-      });
+        return node.putCell(cell);
+      }));
     } else {
       // Node-layer publish carries `members` and persists locally (readable via
       // getRaw) + fans out over the mesh. publish_document's Dart binding throws
@@ -1727,7 +1738,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       // so swallow it. Do NOT fall back to putCell: it writes a flat, memberless
       // doc that the next refresh reads back, wiping membership — the "added
       // node reverts" bug.
-      try { node.publishDocument('cells', cellJson); } catch (_) {}
+      try { await node.publishDocument('cells', cellJson); } catch (_) {}
     }
   }
 
@@ -2064,18 +2075,18 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   // Commands are a generic CRDT KV doc ("commands"), keyed by command id —
   // Automerge-over-BLE, mesh-wide convergence, no lite-bridge. Add = put key;
   // fulfill = put same key with status:completed (LWW per key).
-  void _publishCommand(PeatFlutterNode node, CommandInfo cmd) {
+  Future<void> _publishCommand(PeatFlutterNode node, CommandInfo cmd) async {
     final json = _cmdToJson(cmd);
-    final hex = node.crdtKvPut('commands', cmd.id, json);
-    _broadcastCrdt('commands', hex);
+    final hex = await node.crdtKvPut('commands', cmd.id, json);
+    await _broadcastCrdt('commands', hex);
     // Low-latency delivery for this user action: the single paced send can lose
     // a fragment, and waiting for the 4s steady catch-up feels sluggish. Re-send
     // the commands snapshot a few times over the next ~2s so every fragment
     // lands quickly (idempotent merge — extra sends are harmless).
     for (final ms in const [350, 900, 1800]) {
-      Future.delayed(Duration(milliseconds: ms), () {
+      Future.delayed(Duration(milliseconds: ms), () async {
         if (mounted && _node != null) {
-          _broadcastCrdt('commands', _node!.crdtKvSnapshot('commands'));
+          await _broadcastCrdt('commands', await _node!.crdtKvSnapshot('commands'));
         }
       });
     }
@@ -2098,13 +2109,13 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   // fragmented 0xAF frame (so a node reachable only via a relay appears here),
   // callsign-keyed and always named (kills the nodeId<->callsign flapping the
   // connection-based store caused with half-synced, name-less stubs).
-  List<NodeInfo> _crdtNodes(PeatFlutterNode node) {
+  Future<List<NodeInfo>> _crdtNodes(PeatFlutterNode node) async {
     final out = <NodeInfo>[];
     final advertised = <int, Set<int>>{};
     final wifiPeers = <int>{};
     final cellularPeers = <int>{};
     try {
-      final map = jsonDecode(node.crdtKvAll('nodes')) as Map<String, dynamic>;
+      final map = jsonDecode(await node.crdtKvAll('nodes')) as Map<String, dynamic>;
       for (final v in map.values) {
         if (v is! Map<String, dynamic>) continue;
         final id = v['id'] as String? ?? '';
@@ -2148,10 +2159,10 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
   }
 
   // Parse the "commands" CRDT KV doc ({id: {cmd...}}) into CommandInfo list.
-  List<CommandInfo> _readCommands(PeatFlutterNode node) {
+  Future<List<CommandInfo>> _readCommands(PeatFlutterNode node) async {
     final out = <CommandInfo>[];
     try {
-      final map = jsonDecode(node.crdtKvAll('commands')) as Map<String, dynamic>;
+      final map = jsonDecode(await node.crdtKvAll('commands')) as Map<String, dynamic>;
       for (final v in map.values) {
         if (v is! Map<String, dynamic>) continue;
         final statusName = (v['status'] as String?) ?? 'pending';
@@ -2179,7 +2190,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     final node = _node;
     if (node == null) return;
     final id = 'req-${DateTime.now().millisecondsSinceEpoch}';
-    _publishCommand(node, CommandInfo(
+    unawaited(_publishCommand(node, CommandInfo(
       id: id,
       commandType: 'WATER_REQUEST',
       targetId: 'leader',
@@ -2189,7 +2200,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       originator: _nodeId ?? '',
       createdAt: DateTime.now().millisecondsSinceEpoch,
       lastUpdate: DateTime.now().millisecondsSinceEpoch,
-    ));
+    )));
   }
 
   void _fulfillCommand(CommandInfo cmd) {
@@ -2203,10 +2214,10 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     // SAME holdings doc on different keys, so the sum (total) is unchanged.
     try {
       final qty = _parseParams(cmd.parameters)['quantity'] as int? ?? 0;
-      if (qty > 0) _adjustCounter(node, -qty);
+      if (qty > 0) unawaited(_adjustCounter(node, -qty));
     } catch (_) {}
     // Mark command as completed (for the requester's "fulfilled" UI).
-    _publishCommand(node, CommandInfo(
+    unawaited(_publishCommand(node, CommandInfo(
       id: cmd.id,
       commandType: cmd.commandType,
       targetId: cmd.targetId,
@@ -2216,7 +2227,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       originator: cmd.originator,
       createdAt: cmd.createdAt,
       lastUpdate: DateTime.now().millisecondsSinceEpoch,
-    ));
+    )));
   }
 
   Widget _buildCommandCard(ThemeData theme) {
@@ -2247,7 +2258,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
                     ? () {
                         if (isLeader) {
                           // No commander above — add directly to own supply.
-                          _adjustCounter(_node, 5);
+                          unawaited(_adjustCounter(_node, 5));
                         } else {
                           _issueWaterRequest(5);
                         }
@@ -2483,7 +2494,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
 
   // ── Blob / Attachment helpers ───────────────────────────────────────
 
-  void _blobStoreSample() {
+  Future<void> _blobStoreSample() async {
     final node = _node;
     if (node == null) return;
     final timestamp = DateTime.now().toIso8601String();
@@ -2497,7 +2508,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       'notes': 'Sample collected by $_callsign at $timestamp',
     }));
     try {
-      final hash = node.blobPut(Uint8List.fromList(payload), 'application/json');
+      final hash = await node.blobPut(Uint8List.fromList(payload), 'application/json');
       setState(() {
         _localBlobs.add((hash: hash, contentType: 'application/json', sizeBytes: payload.length));
       });
@@ -2519,7 +2530,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     }
   }
 
-  void _blobFetchFromPeer(String hashHex, int sizeBytes, String? peerIdHex) {
+  Future<void> _blobFetchFromPeer(String hashHex, int sizeBytes, String? peerIdHex) async {
     final node = _node;
     if (node == null) return;
     _blobDownloadSub?.cancel();
@@ -2528,7 +2539,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       _blobDownloadStatus = const BlobFetchStatusPending();
     });
     if (peerIdHex != null) {
-      try { node.blobAddPeerId(peerIdHex); } catch (_) {}
+      try { await node.blobAddPeerId(peerIdHex); } catch (_) {}
     }
     _blobDownloadSub = node.blobDownload(hashHex, sizeBytes, peerIdHex: peerIdHex).listen(
       (status) {
@@ -2550,15 +2561,16 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     );
   }
 
-  void _showFetchDialog() {
+  Future<void> _showFetchDialog() async {
     final hashCtrl = TextEditingController();
     final sizeCtrl = TextEditingController(text: '1024');
     final peerCtrl = TextEditingController();
     // Pre-fill peer endpoint from roster if available
-    final peers = _peerBlobEndpoints();
+    final peers = await _peerBlobEndpoints();
     if (peers.isNotEmpty) {
       peerCtrl.text = peers.first.endpointId;
     }
+    if (!mounted) return;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -2597,7 +2609,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
               final size = int.tryParse(sizeCtrl.text.trim()) ?? 1024;
               final peer = peerCtrl.text.trim();
               if (hash.isNotEmpty) {
-                _blobFetchFromPeer(hash, size, peer.isEmpty ? null : peer);
+                unawaited(_blobFetchFromPeer(hash, size, peer.isEmpty ? null : peer));
               }
             },
             child: const Text('Fetch'),
@@ -2607,12 +2619,12 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     );
   }
 
-  List<({String callsign, String endpointId})> _peerBlobEndpoints() {
+  Future<List<({String callsign, String endpointId})>> _peerBlobEndpoints() async {
     final node = _node;
     if (node == null) return [];
     final results = <({String callsign, String endpointId})>[];
     try {
-      final map = jsonDecode(node.crdtKvAll('nodes')) as Map<String, dynamic>;
+      final map = jsonDecode(await node.crdtKvAll('nodes')) as Map<String, dynamic>;
       for (final v in map.values) {
         if (v is! Map<String, dynamic>) continue;
         final name = v['name'] as String? ?? '';
@@ -2743,10 +2755,10 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
               IconButton(
                 icon: const Icon(Icons.add_location_alt, size: 20),
                 tooltip: 'Drop pin at random location',
-                onPressed: () {
+                onPressed: () async {
                   final rng = Random();
                   final uid = '${DateTime.now().millisecondsSinceEpoch}-${rng.nextInt(0xFFFF).toRadixString(16).padLeft(4, '0')}';
-                  node.putMarker(MarkerInfo(
+                  await node.putMarker(MarkerInfo(
                     uid: uid,
                     markerType: 'b-m-p-w',
                     lat: 38.88 + rng.nextDouble() * 0.02 - 0.01,
@@ -2758,7 +2770,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
                     cellId: null,
                     deleted: false,
                   ));
-                  _refreshMarkers(node);
+                  await _refreshMarkers(node);
                 },
               ),
             ]),
@@ -2788,8 +2800,8 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
                     color: Colors.red.shade400,
                     child: const Icon(Icons.delete, color: Colors.white),
                   ),
-                  onDismissed: (_) {
-                    node.putMarker(MarkerInfo(
+                  onDismissed: (_) async {
+                    await node.putMarker(MarkerInfo(
                       uid: m.uid,
                       markerType: m.markerType,
                       lat: m.lat,
@@ -2801,7 +2813,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
                       cellId: m.cellId,
                       deleted: true,
                     ));
-                    _refreshMarkers(node);
+                    await _refreshMarkers(node);
                   },
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 4),
@@ -2905,7 +2917,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     return colors[collection.hashCode.abs() % colors.length];
   }
 
-  void _startBle([PeatFlutterNode? explicit]) {
+  Future<void> _startBle([PeatFlutterNode? explicit]) async {
     final node = explicit ?? _node;
     if (node == null || _bleRunning) return;
 
@@ -2914,14 +2926,14 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     // subscribeOutboundFramesJni, so we must NOT also drain it here with
     // startOutboundFrames() — that would split frames between two consumers.
     if (Platform.isAndroid) {
-      _bleChannel.invokeMethod<bool>('startBle').then((ok) {
+      unawaited(_bleChannel.invokeMethod<bool>('startBle').then((ok) {
         if (!mounted) return;
         setState(() => _bleRunning = ok ?? false);
       }).catchError((e) {
         if (!mounted) return;
         // e.g. permissions not granted yet — user grants then taps again.
         setState(() => _bleRunning = false);
-      });
+      }));
       return;
     }
 
@@ -2934,14 +2946,15 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     // The envelope is byte-identical to the Android BleBridge.kt wire format.
     if (Platform.isIOS || Platform.isMacOS) {
       // peat-btle node id: a stable 32-bit derived from the peat-ffi node id.
-      final int bleNodeId = int.parse(node.nodeId.substring(0, 8), radix: 16);
-      _bleChannel.invokeMethod('startBle', {
+      final String myNodeId = await node.nodeId;
+      final int bleNodeId = int.parse(myNodeId.substring(0, 8), radix: 16);
+      unawaited(_bleChannel.invokeMethod('startBle', {
         'nodeId': bleNodeId,
         'callsign': _callsign,
-      }).catchError((_) => null);
+      }).catchError((_) => null));
 
       // Inbound: unwrap the relay envelope and ingest into the mesh.
-      _bleRxSub = _bleRxChannel.receiveBroadcastStream().listen((event) {
+      _bleRxSub = _bleRxChannel.receiveBroadcastStream().listen((event) async {
         if (event is! Uint8List || event.length < 3 || event[0] != 0xAF) return;
         final int transport = event[1];
         final int collLen = event[2];
@@ -2963,11 +2976,11 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
             final Uint8List chunk = Uint8List.sublistView(frame, _kCrdtHdr);
             final hex = _crdtReassemble(coll, msgId, fragIdx, fragCount, chunk);
             if (hex == null) return; // incomplete — wait for more fragments
-            node.crdtKvMerge(coll, hex);
+            await node.crdtKvMerge(coll, hex);
           } else if (transport == 1) {
-            node.ingestInboundLiteFrame(coll, frame);
+            await node.ingestInboundLiteFrame(coll, frame);
           } else {
-            node.ingestInboundFrame(coll, frame);
+            await node.ingestInboundFrame(coll, frame);
           }
         } catch (_) {/* unknown collection / transient — ignore */}
       });
@@ -3091,7 +3104,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       _bleChannel.invokeMethod('stopBle').catchError((_) => null);
       _bleRunning = false;
     }
-    try { _node?.dispose(); } catch (_) {}
+    unawaited(_node?.dispose());
     // Release the native global's owning reference to the node (set by
     // create_node) so the node can actually be freed now that Dart has
     // dropped its handle. Done at node teardown, not BLE stop — the node
@@ -3147,7 +3160,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
     _peerTokenCtrl.dispose();
     _connSub?.cancel();
     _blobDownloadSub?.cancel();
-    _node?.dispose();
+    unawaited(_node?.dispose());
     super.dispose();
   }
 
@@ -3164,8 +3177,8 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
       if (Platform.isIOS) {
         _bleChannel.invokeMethod('bleResume').catchError((_) => null);
       }
-      _publishSelf(_node!);
-      _flushMyCounter(_node!);
+      unawaited(_publishSelf(_node!));
+      unawaited(_flushMyCounter(_node!));
     }
   }
 
@@ -3276,7 +3289,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
                             ),
                           ),
                           onSubmitted: (_) {
-                            if (hasNode) _publishSelf(_node!);
+                            if (hasNode) unawaited(_publishSelf(_node!));
                             setState(() => _editingCallsign = false);
                             _callsignFocus.unfocus();
                           },
@@ -3534,7 +3547,7 @@ class _PeatExampleHomeState extends State<PeatExampleHome>
                             // Re-publish so peers see the change and it's
                             // persisted in this node's Peat document (the store),
                             // NOT app prefs — a database reset then clears it.
-                            if (_node != null) _publishSelf(_node!);
+                            if (_node != null) unawaited(_publishSelf(_node!));
                           },
                           visualDensity: VisualDensity.compact,
                           padding: EdgeInsets.zero,
