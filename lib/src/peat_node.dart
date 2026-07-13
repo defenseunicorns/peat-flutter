@@ -72,7 +72,8 @@ class _Result {
   final int id;
   final dynamic value;
   final String? error;
-  _Result(this.id, this.value, [this.error]);
+  final String? errorType;
+  _Result(this.id, this.value, [this.error, this.errorType]);
 }
 
 class _StreamEvent {
@@ -89,6 +90,25 @@ class _StreamDone {
 class _Ready {
   final SendPort sendPort;
   _Ready(this.sendPort);
+}
+
+/// An error raised by a call that failed inside the background isolate.
+///
+/// Exceptions can't cross the isolate boundary as their original typed
+/// instance (they're serialized to a message and reconstructed here), so
+/// this preserves the original type's *name* (e.g. `PeatErrorException`,
+/// `StateError`) for callers that want to discriminate error kinds, even
+/// though `is`/`on`-catching the original type itself isn't possible.
+class PeatFlutterProxyError implements Exception {
+  /// `original.runtimeType.toString()` from the isolate side, e.g.
+  /// `'PeatErrorExceptionConnectionError'` or `'StateError'`.
+  final String originalType;
+  final String message;
+
+  PeatFlutterProxyError(this.originalType, this.message);
+
+  @override
+  String toString() => 'PeatFlutterProxyError($originalType): $message';
 }
 
 // ── Isolate-side server ─────────────────────────────────────────────────
@@ -150,6 +170,21 @@ void _isolateMain(SendPort mainSend) {
         return null;
 
       case 'create':
+        // PeatFlutterNode is an app-wide singleton by design: the isolate
+        // and its routing tables (_isolateSend, _pending, stream-id
+        // counters) are process-global statics, not per-instance state.
+        // Silently overwriting `node` here would leak the previous native
+        // handle and repoint every existing PeatFlutterNode instance at a
+        // different node out from under it (peat-flutter#25 QA) — fail
+        // loudly instead. Call dispose() on the existing node first if you
+        // need to replace it.
+        if (node != null && !node!.isClosed) {
+          throw StateError(
+            'PeatFlutterNode.create() called while a node is already live — '
+            'call dispose() on the existing PeatFlutterNode first. '
+            'PeatFlutterNode is a single, app-wide node (see class docs).',
+          );
+        }
         node = createNode(args[0] as NodeConfig);
         return null;
 
@@ -461,7 +496,9 @@ void _isolateMain(SendPort mainSend) {
     if (msg is _Call) {
       dispatch(msg.method, msg.args).then(
         (value) => mainSend.send(_Result(msg.id, value)),
-        onError: (Object e) => mainSend.send(_Result(msg.id, null, e.toString())),
+        onError: (Object e) => mainSend.send(
+          _Result(msg.id, null, e.toString(), e.runtimeType.toString()),
+        ),
       );
     }
   });
@@ -474,6 +511,13 @@ void _isolateMain(SendPort mainSend) {
 /// Every method call is proxied to a dedicated background isolate that owns
 /// the native node for its whole lifetime — see the file comment for why
 /// this indirection exists.
+///
+/// **This is an app-wide singleton, not a per-instance wrapper.** The
+/// isolate and its routing tables (pending calls, stream-id counters) are
+/// process-global — there is exactly one background isolate and one live
+/// native node for the whole app, no matter how many [PeatFlutterNode]
+/// instances exist. Call [dispose] before calling [create] again; a second
+/// [create] while a node is already live throws.
 ///
 /// ## Initialization
 ///
@@ -522,46 +566,63 @@ class PeatFlutterNode {
     final completer = Completer<SendPort>();
     _isolateSendFuture = completer.future;
     () async {
-      final rp = ReceivePort();
-      await Isolate.spawn(_isolateMain, rp.sendPort);
-      late final StreamSubscription sub;
-      sub = rp.listen((msg) {
-        if (msg is _Ready) {
-          _isolateSend = msg.sendPort;
-          completer.complete(msg.sendPort);
-        } else if (msg is _Result) {
-          final c = _pending.remove(msg.id);
-          if (msg.error != null) {
-            c?.completeError(StateError(msg.error!));
-          } else {
-            c?.complete(msg.value);
+      try {
+        final rp = ReceivePort();
+        await Isolate.spawn(_isolateMain, rp.sendPort);
+        late final StreamSubscription sub;
+        sub = rp.listen((msg) {
+          if (msg is _Ready) {
+            _isolateSend = msg.sendPort;
+            completer.complete(msg.sendPort);
+          } else if (msg is _Result) {
+            final c = _pending.remove(msg.id);
+            if (msg.error != null) {
+              c?.completeError(
+                PeatFlutterProxyError(msg.errorType ?? 'Unknown', msg.error!),
+              );
+            } else {
+              c?.complete(msg.value);
+            }
+          } else if (msg is _StreamEvent) {
+            _dispatchStreamEvent(msg.streamId, msg.value);
+          } else if (msg is _StreamDone) {
+            _dispatchStreamDone(msg.streamId);
           }
-        } else if (msg is _StreamEvent) {
-          _dispatchStreamEvent(msg.streamId, msg.value);
-        } else if (msg is _StreamDone) {
-          _dispatchStreamDone(msg.streamId);
-        }
-      });
-      // Keep a reference alive so the analyzer doesn't flag `sub` as unused;
-      // the isolate + its ReceivePort live for the app's whole lifetime.
-      _keepAlive.add(sub);
+        });
+        // Keep a reference alive so the analyzer doesn't flag `sub` as
+        // unused; the isolate + its ReceivePort live for the app's whole
+        // lifetime.
+        _keepAlive.add(sub);
+      } catch (e, st) {
+        // Without this, a spawn/setup failure leaves `_isolateSendFuture`
+        // cached with a completer that's never completed — every
+        // subsequent _call() would await it forever with no error ever
+        // surfacing (peat-flutter#25 QA). Reset the cache too, so a
+        // transient failure (e.g. platform resource exhaustion) doesn't
+        // permanently wedge every future PeatFlutterNode use in the app.
+        _isolateSendFuture = null;
+        completer.completeError(e, st);
+      }
     }();
     return completer.future;
   }
 
   static final _keepAlive = <StreamSubscription>[];
-  static final _changeControllers = <int, StreamController<DocumentChange>>{};
-  static final _outboundControllers = <int, StreamController<OutboundFrame>>{};
-  static final _blobControllers = <int, StreamController<BlobFetchStatus>>{};
+
+  /// One dispatcher per live stream, keyed by streamId — registered by
+  /// whichever of [subscribeChanges]/[startOutboundFrames]/[blobDownload]
+  /// owns that id. A single, explicit lookup instead of probing three
+  /// separately-typed controller maps and relying on `?.`-short-circuit to
+  /// skip the wrong-type casts for the other two (peat-flutter#25 QA).
+  static final _streamDispatchers = <int, void Function(dynamic)>{};
+  static final _streamDoneHandlers = <int, void Function()>{};
 
   static void _dispatchStreamEvent(int streamId, dynamic value) {
-    _changeControllers[streamId]?.add(value as DocumentChange);
-    _outboundControllers[streamId]?.add(value as OutboundFrame);
-    _blobControllers[streamId]?.add(value as BlobFetchStatus);
+    _streamDispatchers[streamId]?.call(value);
   }
 
   static void _dispatchStreamDone(int streamId) {
-    _blobControllers[streamId]?.close();
+    _streamDoneHandlers[streamId]?.call();
   }
 
   static Future<dynamic> _call(String method, [List<dynamic> args = const []]) async {
@@ -784,7 +845,7 @@ class PeatFlutterNode {
     final previous = _changeStreamId;
     if (previous != null) {
       unawaited(_call('subscribeChanges_cancel', [previous]));
-      _changeControllers.remove(previous);
+      _streamDispatchers.remove(previous);
     }
     _changeCtrl?.close();
 
@@ -793,11 +854,11 @@ class PeatFlutterNode {
     final ctrl = StreamController<DocumentChange>.broadcast(
       onCancel: () {
         unawaited(_call('subscribeChanges_cancel', [streamId]));
-        _changeControllers.remove(streamId);
+        _streamDispatchers.remove(streamId);
       },
     );
     _changeCtrl = ctrl;
-    _changeControllers[streamId] = ctrl;
+    _streamDispatchers[streamId] = (value) => ctrl.add(value as DocumentChange);
 
     unawaited(_call('subscribeChanges_start', [streamId, pollInterval.inMilliseconds]));
 
@@ -815,7 +876,7 @@ class PeatFlutterNode {
     final previous = _outboundStreamId;
     if (previous != null) {
       unawaited(_call('startOutboundFrames_cancel'));
-      _outboundControllers.remove(previous);
+      _streamDispatchers.remove(previous);
     }
     _outboundCtrl?.close();
 
@@ -824,11 +885,11 @@ class PeatFlutterNode {
     final ctrl = StreamController<OutboundFrame>.broadcast(
       onCancel: () {
         unawaited(_call('startOutboundFrames_cancel'));
-        _outboundControllers.remove(streamId);
+        _streamDispatchers.remove(streamId);
       },
     );
     _outboundCtrl = ctrl;
-    _outboundControllers[streamId] = ctrl;
+    _streamDispatchers[streamId] = (value) => ctrl.add(value as OutboundFrame);
 
     unawaited(_call('startOutboundFrames_start', [streamId, pollInterval.inMilliseconds]));
 
@@ -888,7 +949,8 @@ class PeatFlutterNode {
     final previous = _blobStreamId;
     if (previous != null) {
       unawaited(_call('blobDownload_cancel', [previous]));
-      _blobControllers.remove(previous);
+      _streamDispatchers.remove(previous);
+      _streamDoneHandlers.remove(previous);
     }
     _blobCtrl?.close();
 
@@ -897,11 +959,13 @@ class PeatFlutterNode {
     final ctrl = StreamController<BlobFetchStatus>.broadcast(
       onCancel: () {
         unawaited(_call('blobDownload_cancel', [streamId]));
-        _blobControllers.remove(streamId);
+        _streamDispatchers.remove(streamId);
+        _streamDoneHandlers.remove(streamId);
       },
     );
     _blobCtrl = ctrl;
-    _blobControllers[streamId] = ctrl;
+    _streamDispatchers[streamId] = (value) => ctrl.add(value as BlobFetchStatus);
+    _streamDoneHandlers[streamId] = ctrl.close;
 
     unawaited(_call('blobDownload_start',
         [streamId, hashHex, sizeBytes, peerIdHex, pollInterval.inMilliseconds]));
@@ -964,11 +1028,14 @@ class PeatFlutterNode {
   /// Cancel all active subscriptions and release FFI resources.
   Future<void> dispose() async {
     final changeId = _changeStreamId;
-    if (changeId != null) _changeControllers.remove(changeId);
+    if (changeId != null) _streamDispatchers.remove(changeId);
     final outboundId = _outboundStreamId;
-    if (outboundId != null) _outboundControllers.remove(outboundId);
+    if (outboundId != null) _streamDispatchers.remove(outboundId);
     final blobId = _blobStreamId;
-    if (blobId != null) _blobControllers.remove(blobId);
+    if (blobId != null) {
+      _streamDispatchers.remove(blobId);
+      _streamDoneHandlers.remove(blobId);
+    }
 
     await _changeCtrl?.close();
     await _outboundCtrl?.close();
