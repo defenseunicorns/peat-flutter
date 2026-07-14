@@ -1,6 +1,6 @@
 name: peat_flutter
 description: "Flutter FFI plugin wrapping the peat mesh protocol — peat-schema, peat-protocol, peat-mesh, and peat-btle."
-version: 0.0.1
+version: 0.1.0
 homepage: https://github.com/defenseunicorns/peat-flutter
 
 environment:

@@ -23,6 +23,9 @@ crate-type = ["staticlib", "cdylib"]
 [dependencies]
 # Pinned to the published peat-ffi. sync = document/CRDT API; bluetooth = BLE
 # transport; lite-bridge is required to compile (peat-ffi feature-gating) and
-# adds the peat-lite envelope transport used by the BLE relay path. peat-ffi's
-# own target-cfg selects the per-platform peat-btle backend automatically.
-peat-ffi = { version = "=0.2.10", default-features = false, features = ["sync", "bluetooth", "lite-bridge"] }
+# adds the peat-lite envelope transport used by the BLE relay path;
+# relay-n0-hosted enables iroh's n0-hosted relay pool + DNS/pkarr discovery so
+# blob endpoints and consumers that set enableN0Relay can reach peers across
+# subnets. peat-ffi's own target-cfg selects the per-platform peat-btle
+# backend automatically.
+peat-ffi = { version = "=0.2.10", default-features = false, features = ["sync", "bluetooth", "lite-bridge", "relay-n0-hosted"] }
