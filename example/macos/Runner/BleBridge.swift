@@ -37,6 +37,13 @@ final class PeatBLEManager: NSObject, CBCentralManagerDelegate, CBPeripheralDele
     // Never retried — CoreBluetooth would just reconnect it again on the
     // next scan match, cycling forever.
     private var rejectedPeripherals: Set<String> = []
+    // Peers that completed GATT validation and had onPeerConnected fired —
+    // the only source of truth for whether a disconnect should surface
+    // onPeerDisconnected. `connected` alone isn't enough: it's populated in
+    // didConnect, before validation runs, so a disconnect mid-validation
+    // would otherwise look like a validated peer going away (peat-flutter
+    // QA review on #27).
+    private var validatedPeers: Set<String> = []
     private var subscribedCentrals: [CBCentral] = []          // we are Peripheral
     private var docCharacteristic: CBMutableCharacteristic?
     private var serviceAdded = false
@@ -167,16 +174,18 @@ final class PeatBLEManager: NSObject, CBCentralManagerDelegate, CBPeripheralDele
 
     func centralManager(_ cm: CBCentralManager, didDisconnectPeripheral p: CBPeripheral, error: Error?) {
         let id = p.identifier.uuidString
-        let wasValidatedPeer = connected.removeValue(forKey: id) != nil && !rejectedPeripherals.contains(id)
+        connected.removeValue(forKey: id)
+        let wasValidatedPeer = validatedPeers.remove(id) != nil
         if let error = error as NSError? {
             blog("didDisconnectPeripheral \(id): code=\(error.code) domain=\(error.domain) \(error.localizedDescription)")
         } else {
             blog("didDisconnectPeripheral \(id): no error (clean/local disconnect)")
         }
-        // Only surface a disconnect for peers we'd actually announced as
-        // connected — a rejected (non-peat) peripheral never fired
-        // onPeerConnected, so firing onPeerDisconnected for it would be a
-        // spurious signal to the mesh layer.
+        // Only surface a disconnect for peers that completed GATT
+        // validation and had onPeerConnected fired — a rejected (non-peat)
+        // peripheral, or one that disconnected mid-validation, never did,
+        // so firing onPeerDisconnected for it would be a spurious signal
+        // to the mesh layer.
         if wasValidatedPeer { onPeerDisconnected?(id) }
     }
 
@@ -187,11 +196,23 @@ final class PeatBLEManager: NSObject, CBCentralManagerDelegate, CBPeripheralDele
 
     func peripheral(_ p: CBPeripheral, didDiscoverServices error: Error?) {
         let id = p.identifier.uuidString
+        // A transient GATT error (dropped mid-discovery, ATT error, RF
+        // failure) also leaves `p.services` nil/empty — that's not proof
+        // this isn't a peat device, so don't blacklist it. Disconnect and
+        // let it come back through the normal discover/connect cycle
+        // (peat-flutter QA review on #27).
+        if let error = error {
+            blog("didDiscoverServices error for \(id): \(error.localizedDescription) — not blacklisting, will retry on rediscovery")
+            connected.removeValue(forKey: id)
+            central.cancelPeripheralConnection(p)
+            return
+        }
         let matched = (p.services ?? []).filter { $0.uuid == PEAT_SERVICE_UUID_128 }
         guard !matched.isEmpty else {
-            // Matched the 16-bit advertise alias but has no real peat
-            // service — an unrelated device (see rejectedPeripherals doc).
-            // Never treated as connected, so no onPeerDisconnected either.
+            // No error, and genuinely no matching service — matched the
+            // 16-bit advertise alias but isn't a real peat device (see
+            // rejectedPeripherals doc). Never treated as connected, so no
+            // onPeerDisconnected either.
             blog("rejecting \(id): no PEAT_SERVICE_UUID_128 (not a peat device)")
             rejectedPeripherals.insert(id)
             connected.removeValue(forKey: id)
@@ -205,6 +226,12 @@ final class PeatBLEManager: NSObject, CBCentralManagerDelegate, CBPeripheralDele
 
     func peripheral(_ p: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         let id = p.identifier.uuidString
+        if let error = error {
+            blog("didDiscoverCharacteristicsFor error for \(id): \(error.localizedDescription) — not blacklisting, will retry on rediscovery")
+            connected.removeValue(forKey: id)
+            central.cancelPeripheralConnection(p)
+            return
+        }
         let matched = (service.characteristics ?? []).filter { $0.uuid == PEAT_DOC_CHAR_UUID }
         guard !matched.isEmpty else {
             blog("rejecting \(id): PEAT_SERVICE_UUID_128 present but no PEAT_DOC_CHAR_UUID")
@@ -218,6 +245,7 @@ final class PeatBLEManager: NSObject, CBCentralManagerDelegate, CBPeripheralDele
         }
         // GATT-validated as a real peat device — announce it now, not in
         // didConnect (see comment there).
+        validatedPeers.insert(id)
         onPeerConnected?(id)
     }
 
