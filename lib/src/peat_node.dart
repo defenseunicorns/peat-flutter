@@ -16,6 +16,7 @@
 // entirely removes that contention regardless of how slow any given call is.
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
@@ -55,6 +56,31 @@ final _rng = Random();
 
 String _newDocId() =>
     '${DateTime.now().millisecondsSinceEpoch}-${_rng.nextInt(0xFFFF).toRadixString(16).padLeft(4, '0')}';
+
+List<T> _readTypedDocuments<T>(
+  PeatNode node,
+  String collection,
+  T Function(Map<String, dynamic>) decode,
+) {
+  return node
+      .listDocuments(collection)
+      .map((id) {
+        final encoded = node.getDocument(collection, id);
+        if (encoded == null) {
+          throw StateError(
+            '$collection document $id disappeared while reading',
+          );
+        }
+        final value = jsonDecode(encoded);
+        if (value is! Map<String, dynamic>) {
+          throw FormatException(
+            '$collection document $id is not a JSON object',
+          );
+        }
+        return decode(value);
+      })
+      .toList(growable: false);
+}
 
 // ── Isolate wire protocol ───────────────────────────────────────────────
 //
@@ -207,21 +233,23 @@ void _isolateMain(SendPort mainSend) {
         }
 
       case 'publishSelf':
-        node!.putNode(NodeInfo(
-          id: args[0] as String,
-          nodeType: 'peat-flutter',
-          name: args[1] as String,
-          status: args[2] as NodeStatus,
-          lat: 0,
-          lon: 0,
-          hae: null,
-          readiness: args[3] as double,
-          capabilities: (args[4] as List).cast<String>(),
-          cellId: null,
-          batteryPercent: null,
-          heartRate: null,
-          lastHeartbeat: DateTime.now().millisecondsSinceEpoch,
-        ));
+        node!.putNode(
+          NodeInfo(
+            id: args[0] as String,
+            nodeType: 'peat-flutter',
+            name: args[1] as String,
+            status: args[2] as NodeStatus,
+            lat: 0,
+            lon: 0,
+            hae: null,
+            readiness: args[3] as double,
+            capabilities: (args[4] as List).cast<String>(),
+            cellId: null,
+            batteryPercent: null,
+            heartRate: null,
+            lastHeartbeat: DateTime.now().millisecondsSinceEpoch,
+          ),
+        );
         return null;
 
       case 'nodes':
@@ -236,11 +264,12 @@ void _isolateMain(SendPort mainSend) {
         return null;
 
       case 'putMarker':
-        node!.putMarker(args[0] as MarkerInfo);
+        final marker = args[0] as MarkerInfo;
+        node!.putDocument('markers', marker.uid, jsonEncode(marker.toJson()));
         return null;
 
       case 'markers':
-        return node!.getMarkers();
+        return _readTypedDocuments(node!, 'markers', MarkerInfo.fromJson);
 
       case 'putCell':
         node!.putCell(args[0] as CellInfo);
@@ -250,11 +279,12 @@ void _isolateMain(SendPort mainSend) {
         return node!.getCells();
 
       case 'putCommand':
-        node!.putCommand(args[0] as CommandInfo);
+        final command = args[0] as CommandInfo;
+        node!.putDocument('commands', command.id, jsonEncode(command.toJson()));
         return null;
 
       case 'commands':
-        return node!.getCommands();
+        return _readTypedDocuments(node!, 'commands', CommandInfo.fromJson);
 
       case 'peerCount':
         return node!.peerCount();
@@ -263,21 +293,25 @@ void _isolateMain(SendPort mainSend) {
         return node!.connectedPeers();
 
       case 'connectPeer':
-        node!.connectPeer(PeerInfo(
-          name: args[3] as String,
-          nodeId: args[0] as String,
-          addresses: (args[1] as List).cast<String>(),
-          relayUrl: args[2] as String?,
-        ));
+        node!.connectPeer(
+          PeerInfo(
+            name: args[3] as String,
+            nodeId: args[0] as String,
+            addresses: (args[1] as List).cast<String>(),
+            relayUrl: args[2] as String?,
+          ),
+        );
         return null;
 
       case 'connectPeerNowait':
-        node!.connectPeerNowait(PeerInfo(
-          name: args[3] as String,
-          nodeId: args[0] as String,
-          addresses: (args[1] as List).cast<String>(),
-          relayUrl: args[2] as String?,
-        ));
+        node!.connectPeerNowait(
+          PeerInfo(
+            name: args[3] as String,
+            nodeId: args[0] as String,
+            addresses: (args[1] as List).cast<String>(),
+            relayUrl: args[2] as String?,
+          ),
+        );
         return null;
 
       case 'rememberPeer':
@@ -323,7 +357,11 @@ void _isolateMain(SendPort mainSend) {
         return null;
 
       case 'putDocument':
-        node!.putDocument(args[0] as String, args[1] as String, args[2] as String);
+        node!.putDocument(
+          args[0] as String,
+          args[1] as String,
+          args[2] as String,
+        );
         return null;
 
       case 'getDocument':
@@ -347,7 +385,9 @@ void _isolateMain(SendPort mainSend) {
           final pollMs = args[1] as int;
           final sub = node!.subscribePoll();
           subs[streamId] = sub;
-          subTimers[streamId] = Timer.periodic(Duration(milliseconds: pollMs), (_) {
+          subTimers[streamId] = Timer.periodic(Duration(milliseconds: pollMs), (
+            _,
+          ) {
             if (sub.isClosed) return;
             for (final c in sub.pollChanges()) {
               mainSend.send(_StreamEvent(streamId, c));
@@ -413,18 +453,22 @@ void _isolateMain(SendPort mainSend) {
           final handle = node!.blobFetchStart(hashHex, sizeBytes, peerIdHex);
           blobHandles[streamId] = handle;
           blobLast[streamId] = null;
-          blobTimers[streamId] = Timer.periodic(Duration(milliseconds: pollMs), (_) {
-            if (handle.isClosed) return;
-            final status = handle.status();
-            if (status != blobLast[streamId]) {
-              mainSend.send(_StreamEvent(streamId, status));
-              blobLast[streamId] = status;
-            }
-            if (status is BlobFetchStatusCompleted || status is BlobFetchStatusFailed) {
-              mainSend.send(_StreamDone(streamId));
-              stopBlobStream(streamId);
-            }
-          });
+          blobTimers[streamId] = Timer.periodic(
+            Duration(milliseconds: pollMs),
+            (_) {
+              if (handle.isClosed) return;
+              final status = handle.status();
+              if (status != blobLast[streamId]) {
+                mainSend.send(_StreamEvent(streamId, status));
+                blobLast[streamId] = status;
+              }
+              if (status is BlobFetchStatusCompleted ||
+                  status is BlobFetchStatusFailed) {
+                mainSend.send(_StreamDone(streamId));
+                stopBlobStream(streamId);
+              }
+            },
+          );
           return null;
         }
 
@@ -433,10 +477,16 @@ void _isolateMain(SendPort mainSend) {
         return null;
 
       case 'ingestInboundFrame':
-        return node!.ingestInboundFrame(args[0] as String, args[1] as Uint8List);
+        return node!.ingestInboundFrame(
+          args[0] as String,
+          args[1] as Uint8List,
+        );
 
       case 'ingestInboundLiteFrame':
-        return node!.ingestInboundLiteFrame(args[0] as String, args[1] as Uint8List);
+        return node!.ingestInboundLiteFrame(
+          args[0] as String,
+          args[1] as Uint8List,
+        );
 
       case 'publishDocument':
         return node!.publishDocument(args[0] as String, args[1] as String);
@@ -454,7 +504,11 @@ void _isolateMain(SendPort mainSend) {
         return node!.crdtCounterSnapshot();
 
       case 'crdtKvPut':
-        return node!.crdtKvPut(args[0] as String, args[1] as String, args[2] as String);
+        return node!.crdtKvPut(
+          args[0] as String,
+          args[1] as String,
+          args[2] as String,
+        );
 
       case 'crdtKvAll':
         return node!.crdtKvAll(args[0] as String);
@@ -625,7 +679,10 @@ class PeatFlutterNode {
     _streamDoneHandlers[streamId]?.call();
   }
 
-  static Future<dynamic> _call(String method, [List<dynamic> args = const []]) async {
+  static Future<dynamic> _call(
+    String method, [
+    List<dynamic> args = const [],
+  ]) async {
     final send = _isolateSend ?? await _ensureIsolate();
     final id = _nextCallId++;
     final completer = Completer<dynamic>();
@@ -655,7 +712,8 @@ class PeatFlutterNode {
 
   /// The iroh relay URL this node is registered at (https:// form), or '—'
   /// if the relay connection has not yet been established.
-  Future<String> get endpointAddr async => await _call('endpointAddr') as String;
+  Future<String> get endpointAddr async =>
+      await _call('endpointAddr') as String;
 
   /// This node's bound socket address (host:port), if available.
   Future<String?> get endpointSocketAddr async =>
@@ -669,8 +727,7 @@ class PeatFlutterNode {
     required List<String> capabilities,
     NodeStatus status = NodeStatus.active,
     double readiness = 1.0,
-  }) =>
-      _call('publishSelf', [nodeId, name, status, readiness, capabilities]);
+  }) => _call('publishSelf', [nodeId, name, status, readiness, capabilities]);
 
   /// All nodes known to the mesh (including this one).
   Future<List<NodeInfo>> get nodes async =>
@@ -730,8 +787,7 @@ class PeatFlutterNode {
     List<String> addresses = const [],
     String? relayUrl,
     String name = '',
-  }) =>
-      _call('connectPeer', [nodeId, addresses, relayUrl, name]);
+  }) => _call('connectPeer', [nodeId, addresses, relayUrl, name]);
 
   /// Non-blocking variant of [connectPeer]: the dial runs on the native
   /// runtime and this returns as soon as the isolate has enqueued it. On
@@ -741,8 +797,7 @@ class PeatFlutterNode {
     List<String> addresses = const [],
     String? relayUrl,
     String name = '',
-  }) =>
-      _call('connectPeerNowait', [nodeId, addresses, relayUrl, name]);
+  }) => _call('connectPeerNowait', [nodeId, addresses, relayUrl, name]);
 
   // --- Reconnect supervisor -------------------------------------------------
 
@@ -759,8 +814,7 @@ class PeatFlutterNode {
     List<String> addresses = const [],
     String? relayUrl,
     String name = '',
-  }) =>
-      _call('rememberPeer', [groupId, nodeId, addresses, relayUrl, name]);
+  }) => _call('rememberPeer', [groupId, nodeId, addresses, relayUrl, name]);
 
   /// Gentle reconnect pass: dial any disconnected, eligible roster member now.
   /// Does not clear backoff. Cheap to call periodically.
@@ -776,26 +830,36 @@ class PeatFlutterNode {
   /// advertisement or a relay "peer online" signal. Dials it immediately if it
   /// isn't already connected and isn't backing off, bypassing the periodic tick
   /// (important inside a tight mobile background-execution budget).
-  Future<void> onPeerObserved(String nodeId) => _call('onPeerObserved', [nodeId]);
+  Future<void> onPeerObserved(String nodeId) =>
+      _call('onPeerObserved', [nodeId]);
 
   /// Current sync statistics (active, bytes sent/received).
-  Future<SyncStats> get syncStats async => await _call('syncStats') as SyncStats;
+  Future<SyncStats> get syncStats async =>
+      await _call('syncStats') as SyncStats;
 
   /// Start mesh synchronisation and begin periodic sync requests.
-  Future<void> startSync({Duration syncInterval = const Duration(seconds: 5)}) =>
-      _call('startSync', [syncInterval.inMilliseconds]);
+  Future<void> startSync({
+    Duration syncInterval = const Duration(seconds: 5),
+  }) => _call('startSync', [syncInterval.inMilliseconds]);
 
   /// Stop mesh synchronisation.
   Future<void> stopSync() => _call('stopSync');
 
   /// Store [message] (a proto-generated [GeneratedMessage]) into [collection]
   /// under [docId]. Publishes to connected peers via Automerge sync.
-  Future<void> putMessage(String collection, String docId, GeneratedMessage message) =>
-      _call('putDocument', [collection, docId, message.writeToJson()]);
+  Future<void> putMessage(
+    String collection,
+    String docId,
+    GeneratedMessage message,
+  ) => _call('putDocument', [collection, docId, message.writeToJson()]);
 
   /// Publish [jsonData] into [collection]. If [docId] is omitted a
   /// timestamp+random ID is generated. Returns the ID used.
-  Future<String> publishRaw(String collection, String jsonData, {String? docId}) async {
+  Future<String> publishRaw(
+    String collection,
+    String jsonData, {
+    String? docId,
+  }) async {
     final id = docId ?? _newDocId();
     await _call('putDocument', [collection, id, jsonData]);
     return id;
@@ -860,7 +924,9 @@ class PeatFlutterNode {
     _changeCtrl = ctrl;
     _streamDispatchers[streamId] = (value) => ctrl.add(value as DocumentChange);
 
-    unawaited(_call('subscribeChanges_start', [streamId, pollInterval.inMilliseconds]));
+    unawaited(
+      _call('subscribeChanges_start', [streamId, pollInterval.inMilliseconds]),
+    );
 
     return ctrl.stream;
   }
@@ -891,7 +957,12 @@ class PeatFlutterNode {
     _outboundCtrl = ctrl;
     _streamDispatchers[streamId] = (value) => ctrl.add(value as OutboundFrame);
 
-    unawaited(_call('startOutboundFrames_start', [streamId, pollInterval.inMilliseconds]));
+    unawaited(
+      _call('startOutboundFrames_start', [
+        streamId,
+        pollInterval.inMilliseconds,
+      ]),
+    );
 
     return ctrl.stream;
   }
@@ -909,7 +980,8 @@ class PeatFlutterNode {
   /// Register a known blob peer by hex endpoint id only — no static address,
   /// so relay/DNS discovery resolves the route. Prefer this over
   /// [blobAddPeer] when the peer may be on a different network/NAT.
-  Future<void> blobAddPeerId(String peerIdHex) => _call('blobAddPeerId', [peerIdHex]);
+  Future<void> blobAddPeerId(String peerIdHex) =>
+      _call('blobAddPeerId', [peerIdHex]);
 
   /// Store bytes in the local blob store. Returns the content hash as hex.
   Future<String> blobPut(Uint8List data, String contentType) async =>
@@ -920,11 +992,13 @@ class PeatFlutterNode {
       await _call('blobExistsLocally', [hashHex]) as bool;
 
   /// This node's blob endpoint id as hex, or null if blob transfer is disabled.
-  Future<String?> blobEndpointId() async => await _call('blobEndpointId') as String?;
+  Future<String?> blobEndpointId() async =>
+      await _call('blobEndpointId') as String?;
 
   /// This node's bound blob endpoint address as "ip:port", or null if blob
   /// transfer is disabled.
-  Future<String?> blobBoundAddr() async => await _call('blobBoundAddr') as String?;
+  Future<String?> blobBoundAddr() async =>
+      await _call('blobBoundAddr') as String?;
 
   /// Download a blob by content hash (peat#1013), as a broadcast [Stream] of
   /// progress. Two delivery modes:
@@ -964,11 +1038,19 @@ class PeatFlutterNode {
       },
     );
     _blobCtrl = ctrl;
-    _streamDispatchers[streamId] = (value) => ctrl.add(value as BlobFetchStatus);
+    _streamDispatchers[streamId] = (value) =>
+        ctrl.add(value as BlobFetchStatus);
     _streamDoneHandlers[streamId] = ctrl.close;
 
-    unawaited(_call('blobDownload_start',
-        [streamId, hashHex, sizeBytes, peerIdHex, pollInterval.inMilliseconds]));
+    unawaited(
+      _call('blobDownload_start', [
+        streamId,
+        hashHex,
+        sizeBytes,
+        peerIdHex,
+        pollInterval.inMilliseconds,
+      ]),
+    );
 
     return ctrl.stream;
   }
@@ -976,7 +1058,10 @@ class PeatFlutterNode {
   /// Feed a BLE inbound frame (postcard bytes from peat-btle) into the mesh.
   ///
   /// Returns the document ID if the frame was accepted, null if unknown.
-  Future<String?> ingestInboundFrame(String collection, Uint8List postcardBytes) async =>
+  Future<String?> ingestInboundFrame(
+    String collection,
+    Uint8List postcardBytes,
+  ) async =>
       await _call('ingestInboundFrame', [collection, postcardBytes]) as String?;
 
   /// Feed a BLE inbound frame on the universal-Document ("ble-lite") codec.
@@ -984,8 +1069,12 @@ class PeatFlutterNode {
   /// The counterpart of [ingestInboundFrame] for raw collections the typed
   /// translator declines (e.g. the demo counter, nodes/cells/mission/commands).
   /// Returns the document ID if accepted, null if the collection is unknown.
-  Future<String?> ingestInboundLiteFrame(String collection, Uint8List envelopeBytes) async =>
-      await _call('ingestInboundLiteFrame', [collection, envelopeBytes]) as String?;
+  Future<String?> ingestInboundLiteFrame(
+    String collection,
+    Uint8List envelopeBytes,
+  ) async =>
+      await _call('ingestInboundLiteFrame', [collection, envelopeBytes])
+          as String?;
 
   /// Publish a JSON document through the node layer so it reaches the ADR-059
   /// fan-out and is emitted over the bridged transports (BLE/Wi-Fi). Unlike
@@ -1001,7 +1090,8 @@ class PeatFlutterNode {
   // can broadcast/relay freely without dedup or ordering concerns.
 
   /// Current merged value of the shared water-supply Counter.
-  Future<int> crdtCounterValue() async => await _call('crdtCounterValue') as int;
+  Future<int> crdtCounterValue() async =>
+      await _call('crdtCounterValue') as int;
 
   /// Apply [delta] liters; returns hex doc bytes to broadcast to peers.
   Future<String> crdtCounterIncrement(int delta) async =>
@@ -1016,8 +1106,11 @@ class PeatFlutterNode {
       await _call('crdtCounterSnapshot') as String;
 
   // Generic CRDT KV documents (nodes/commands/cells/mission).
-  Future<String> crdtKvPut(String collection, String key, String valueJson) async =>
-      await _call('crdtKvPut', [collection, key, valueJson]) as String;
+  Future<String> crdtKvPut(
+    String collection,
+    String key,
+    String valueJson,
+  ) async => await _call('crdtKvPut', [collection, key, valueJson]) as String;
   Future<String> crdtKvAll(String collection) async =>
       await _call('crdtKvAll', [collection]) as String;
   Future<void> crdtKvMerge(String collection, String hexDoc) =>

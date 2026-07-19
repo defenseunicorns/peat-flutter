@@ -18,7 +18,14 @@ publish = false
 # namespace the Dart bindings load (create_node, etc.) matches what peat-ffi's
 # `setup_scaffolding!()` declares. Renaming this breaks the bindings.
 name = "peat_ffi"
-crate-type = ["staticlib", "cdylib"]
+crate-type = ["rlib", "staticlib", "cdylib"]
+
+[features]
+default = ["sync", "bluetooth", "lite-bridge", "relay-n0-hosted"]
+sync = ["peat_ffi_upstream/sync"]
+bluetooth = ["peat_ffi_upstream/bluetooth"]
+lite-bridge = ["peat_ffi_upstream/lite-bridge"]
+relay-n0-hosted = ["peat_ffi_upstream/relay-n0-hosted"]
 
 [dependencies]
 # Pinned to the published peat-ffi. sync = document/CRDT API; bluetooth = BLE
@@ -28,4 +35,8 @@ crate-type = ["staticlib", "cdylib"]
 # blob endpoints and consumers that set enableN0Relay can reach peers across
 # subnets. peat-ffi's own target-cfg selects the per-platform peat-btle
 # backend automatically.
-peat-ffi = { version = "=0.2.10", default-features = false, features = ["sync", "bluetooth", "lite-bridge", "relay-n0-hosted"] }
+peat_ffi_upstream = { package = "peat-ffi", version = "=0.2.12", default-features = false }
+
+[dev-dependencies]
+tempfile = "3"
+uniffi = "0.31"

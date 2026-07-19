@@ -79,6 +79,50 @@ jobs:
             echo "No test/ directory yet — skipping. See CONTRIBUTING.md."
           fi
 
+  native-host:
+    name: Native wrapper + Dart ABI (Linux x64)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up just
+        uses: extractions/setup-just@v4
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config protobuf-compiler
+
+      - name: Install Dart dependencies
+        run: flutter pub get
+
+      - name: Test wrapper-owned FFIBuffer adapter
+        run: cargo test --manifest-path rust/Cargo.toml
+
+      - name: Build optimized wrapper artifact
+        run: just build-host
+
+      - name: Validate Dart ABI against wrapper artifact
+        run: just check-bindings
+
+      - name: Run real Dart reconnect smoke
+        run: dart run tool/smoke_reconnect.dart rust/target/release/libpeat_ffi.so
+
+      - name: Run Flutter tests against wrapper artifact
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/rust/target/release
+        run: flutter test --no-pub
+
   # Platform-specific CI referenced by the `test` job above: the native
   # peat-ffi library is built and linked for aarch64 here, the arch
   # GitHub-hosted x64 runners cannot cover. Runs on the lab's self-hosted

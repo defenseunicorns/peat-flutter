@@ -3533,9 +3533,9 @@ dependencies = [
 
 [[package]]
 name = "peat-ffi"
-version = "0.2.10"
+version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df75222ce1395e8ae71b82332ced650180738d147005adec6dbfd1fa56b1b2db"
+checksum = "a06d95b38b969a6425f4c0bd61e3c637596b024211b55ffb01d6564648839d54"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3548,6 +3548,7 @@ dependencies = [
  "peat-btle",
  "peat-mesh",
  "peat-protocol",
+ "peat-schema",
  "serde",
  "serde_json",
  "tempfile",
@@ -3563,6 +3564,8 @@ name = "peat-flutter-ffi"
 version = "0.1.0"
 dependencies = [
  "peat-ffi",
+ "tempfile",
+ "uniffi",
 ]
 
 [[package]]
@@ -3622,9 +3625,9 @@ dependencies = [
 
 [[package]]
 name = "peat-protocol"
-version = "0.9.0-rc.29"
+version = "0.9.0-rc.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79ba9c7562389cf3702046d4f4702dea8119e320630a134721d7f5fc1dafe6dd"
+checksum = "b48d3f119e4f37b715d50ddede81c9d159784723b980a45920fbeeb89153b1cd"
 dependencies = [
  "anyhow",
  "argon2",
@@ -3665,9 +3668,9 @@ dependencies = [
 
 [[package]]
 name = "peat-schema"
-version = "0.9.0-rc.29"
+version = "0.9.0-rc.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb0ed12df3697fb5fa8420b069127c79421bcc0262ca40ee6ac5e92da2402168"
+checksum = "36414da866abb5a5d98188f8c9c86e0dbd9df111c12c8d3d56a6caaee6d43812"
 dependencies = [
  "chrono",
  "prost",

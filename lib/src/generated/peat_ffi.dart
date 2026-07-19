@@ -6,7 +6,10 @@
 // codecs, checksum-verification blocks in _ensureApiIntegrity), then run
 // `just check-bindings` to verify symbol presence against the compiled
 // library.
-// Base: peat-ffi v0.2.5 (peat commit 39281756, merged peat#973).
+// Native API: peat-ffi v0.2.12. The matching FFIBuffer adapter is owned by
+// rust/src/dart_ffi.rs in this repository; keep both files version-matched.
+// CommandInfo and MarkerInfo remain Flutter-owned JSON DTOs; they intentionally
+// have no UniFFI binary codecs or native typed-method lookups.
 // Manually added since: blob transfer surface (BlobFetchStatus,
 // BlobFetchHandle, PeatNode.blobFetchStart/blobAddPeerId/blobAddPeer/
 // blobPut/blobExistsLocally/blobEndpointId/blobBoundAddr/enableBlobTransfer)
@@ -439,7 +442,7 @@ class ChangeOrigin {
   int get hashCode => peerId.hashCode;
 }
 
-/// Operator-placed map marker — the typed shape every peer renders
+/// Operator-placed map marker — the Flutter-owned shape every peer renders
 /// in the Peat Markers panel and on the MapView (ADR-035 Universal
 /// Document transport, "markers" collection).
 ///
@@ -449,10 +452,9 @@ class ChangeOrigin {
 /// — `MarkerInfo` is the synced shape, the wire transport is
 /// invisible above this surface.
 ///
-/// Wire-key parity with the JSON the prior raw-JSON publish path
-/// produced (uid, type, lat, lon, hae, ts, callsign, color), so the
-/// migration to the typed API is wire-compatible: docs published by
-/// the old raw-JSON path round-trip cleanly into `MarkerInfo`.
+/// Stored through peat-ffi's generic document API. Its JSON keys preserve
+/// compatibility with existing marker documents, while no marker-specific
+/// method or binary codec is added to the upstream UniFFI surface.
 class MarkerInfo {
   const MarkerInfo({
     /// Unique marker identifier — the operator-placed UID, typically
@@ -2738,47 +2740,6 @@ CellInfo _uniffiDecodeCellInfo(Uint8List bytes) {
   return value;
 }
 
-void _uniffiWriteCommandInfo(CommandInfo value, _UniFfiBinaryWriter writer) {
-  writer.writeString(value.id);
-  writer.writeString(value.commandType);
-  writer.writeString(value.targetId);
-  writer.writeString(value.parameters);
-  writer.writeU8(value.priority);
-  _uniffiWriteCommandStatus(value.status, writer);
-  writer.writeString(value.originator);
-  writer.writeI64(value.createdAt);
-  writer.writeI64(value.lastUpdate);
-}
-
-Uint8List _uniffiEncodeCommandInfo(CommandInfo value) {
-  final writer = _UniFfiBinaryWriter();
-  _uniffiWriteCommandInfo(value, writer);
-  return writer.toBytes();
-}
-
-CommandInfo _uniffiReadCommandInfo(_UniFfiBinaryReader reader) {
-  return CommandInfo(
-    id: reader.readString(),
-    commandType: reader.readString(),
-    targetId: reader.readString(),
-    parameters: reader.readString(),
-    priority: reader.readU8(),
-    status: _uniffiReadCommandStatus(reader),
-    originator: reader.readString(),
-    createdAt: reader.readI64(),
-    lastUpdate: reader.readI64(),
-  );
-}
-
-CommandInfo _uniffiDecodeCommandInfo(Uint8List bytes) {
-  final reader = _UniFfiBinaryReader(bytes);
-  final value = _uniffiReadCommandInfo(reader);
-  if (!reader.isDone) {
-    throw StateError('extra bytes remaining while decoding CommandInfo');
-  }
-  return value;
-}
-
 DocumentChange _uniffiReadDocumentChange(_UniFfiBinaryReader reader) {
   return DocumentChange(
     collection: reader.readString(),
@@ -2807,69 +2768,6 @@ DocumentChange _uniffiDecodeDocumentChange(Uint8List bytes) {
   final value = _uniffiReadDocumentChange(reader);
   if (!reader.isDone) {
     throw StateError('extra bytes remaining while decoding DocumentChange');
-  }
-  return value;
-}
-
-void _uniffiWriteMarkerInfo(MarkerInfo value, _UniFfiBinaryWriter writer) {
-  writer.writeString(value.uid);
-  writer.writeString(value.markerType);
-  writer.writeF64(value.lat);
-  writer.writeF64(value.lon);
-  if (value.hae == null) {
-    writer.writeI8(0);
-  } else {
-    writer.writeI8(1);
-    writer.writeF64(value.hae!);
-  }
-  writer.writeI64(value.ts);
-  if (value.callsign == null) {
-    writer.writeI8(0);
-  } else {
-    writer.writeI8(1);
-    writer.writeString(value.callsign!);
-  }
-  if (value.color == null) {
-    writer.writeI8(0);
-  } else {
-    writer.writeI8(1);
-    writer.writeI32(value.color!);
-  }
-  if (value.cellId == null) {
-    writer.writeI8(0);
-  } else {
-    writer.writeI8(1);
-    writer.writeString(value.cellId!);
-  }
-  writer.writeBool(value.deleted);
-}
-
-Uint8List _uniffiEncodeMarkerInfo(MarkerInfo value) {
-  final writer = _UniFfiBinaryWriter();
-  _uniffiWriteMarkerInfo(value, writer);
-  return writer.toBytes();
-}
-
-MarkerInfo _uniffiReadMarkerInfo(_UniFfiBinaryReader reader) {
-  return MarkerInfo(
-    uid: reader.readString(),
-    markerType: reader.readString(),
-    lat: reader.readF64(),
-    lon: reader.readF64(),
-    hae: (() { final int __tag = reader.readI8(); if (__tag == 0) return null; if (__tag != 1) throw StateError('invalid optional tag: $__tag'); return reader.readF64(); })(),
-    ts: reader.readI64(),
-    callsign: (() { final int __tag = reader.readI8(); if (__tag == 0) return null; if (__tag != 1) throw StateError('invalid optional tag: $__tag'); return reader.readString(); })(),
-    color: (() { final int __tag = reader.readI8(); if (__tag == 0) return null; if (__tag != 1) throw StateError('invalid optional tag: $__tag'); return reader.readI32(); })(),
-    cellId: (() { final int __tag = reader.readI8(); if (__tag == 0) return null; if (__tag != 1) throw StateError('invalid optional tag: $__tag'); return reader.readString(); })(),
-    deleted: reader.readBool(),
-  );
-}
-
-MarkerInfo _uniffiDecodeMarkerInfo(Uint8List bytes) {
-  final reader = _UniFfiBinaryReader(bytes);
-  final value = _uniffiReadMarkerInfo(reader);
-  if (!reader.isDone) {
-    throw StateError('extra bytes remaining while decoding MarkerInfo');
   }
   return value;
 }
@@ -4120,16 +4018,6 @@ class PeatFfiFfi {
     if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_get_cells != 34780) {
       throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_get_cells`: expected 34780, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_get_cells');
     }
-    final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_get_commands;
-    try {
-      final int Function() checksumFn = lib.lookupFunction<ffi.Uint16 Function(), int Function()>('uniffi_peat_ffi_checksum_method_peatnode_get_commands');
-      _checksum_uniffi_peat_ffi_checksum_method_peatnode_get_commands = checksumFn();
-    } catch (err) {
-      throw StateError('Missing or invalid UniFFI checksum symbol `uniffi_peat_ffi_checksum_method_peatnode_get_commands`: $err');
-    }
-    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_get_commands != 62247) {
-      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_get_commands`: expected 62247, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_get_commands');
-    }
     final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_get_document;
     try {
       final int Function() checksumFn = lib.lookupFunction<ffi.Uint16 Function(), int Function()>('uniffi_peat_ffi_checksum_method_peatnode_get_document');
@@ -4139,16 +4027,6 @@ class PeatFfiFfi {
     }
     if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_get_document != 13489) {
       throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_get_document`: expected 13489, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_get_document');
-    }
-    final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_get_markers;
-    try {
-      final int Function() checksumFn = lib.lookupFunction<ffi.Uint16 Function(), int Function()>('uniffi_peat_ffi_checksum_method_peatnode_get_markers');
-      _checksum_uniffi_peat_ffi_checksum_method_peatnode_get_markers = checksumFn();
-    } catch (err) {
-      throw StateError('Missing or invalid UniFFI checksum symbol `uniffi_peat_ffi_checksum_method_peatnode_get_markers`: $err');
-    }
-    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_get_markers != 54187) {
-      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_get_markers`: expected 54187, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_get_markers');
     }
     final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_get_nodes;
     try {
@@ -4270,16 +4148,6 @@ class PeatFfiFfi {
     if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_put_cell != 49386) {
       throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_put_cell`: expected 49386, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_put_cell');
     }
-    final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_put_command;
-    try {
-      final int Function() checksumFn = lib.lookupFunction<ffi.Uint16 Function(), int Function()>('uniffi_peat_ffi_checksum_method_peatnode_put_command');
-      _checksum_uniffi_peat_ffi_checksum_method_peatnode_put_command = checksumFn();
-    } catch (err) {
-      throw StateError('Missing or invalid UniFFI checksum symbol `uniffi_peat_ffi_checksum_method_peatnode_put_command`: $err');
-    }
-    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_put_command != 63102) {
-      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_put_command`: expected 63102, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_put_command');
-    }
     final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_put_document;
     try {
       final int Function() checksumFn = lib.lookupFunction<ffi.Uint16 Function(), int Function()>('uniffi_peat_ffi_checksum_method_peatnode_put_document');
@@ -4289,16 +4157,6 @@ class PeatFfiFfi {
     }
     if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_put_document != 56866) {
       throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_put_document`: expected 56866, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_put_document');
-    }
-    final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_put_marker;
-    try {
-      final int Function() checksumFn = lib.lookupFunction<ffi.Uint16 Function(), int Function()>('uniffi_peat_ffi_checksum_method_peatnode_put_marker');
-      _checksum_uniffi_peat_ffi_checksum_method_peatnode_put_marker = checksumFn();
-    } catch (err) {
-      throw StateError('Missing or invalid UniFFI checksum symbol `uniffi_peat_ffi_checksum_method_peatnode_put_marker`: $err');
-    }
-    if (_checksum_uniffi_peat_ffi_checksum_method_peatnode_put_marker != 2900) {
-      throw StateError('UniFFI API checksum mismatch for `uniffi_peat_ffi_checksum_method_peatnode_put_marker`: expected 2900, got $_checksum_uniffi_peat_ffi_checksum_method_peatnode_put_marker');
     }
     final int _checksum_uniffi_peat_ffi_checksum_method_peatnode_put_node;
     try {
@@ -5932,94 +5790,6 @@ class PeatFfiFfi {
     }
   }
 
-  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeGetCommandsFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_get_commands');
-
-  List<CommandInfo> peatNodeInvokeGetCommands(int handle) {
-    final ffi.Pointer<_UniFfiFfiBufferElement> argBuf = calloc<_UniFfiFfiBufferElement>(1);
-    final ffi.Pointer<_UniFfiFfiBufferElement> returnBuf = calloc<_UniFfiFfiBufferElement>(7);
-    final foreignArgPtrs = <ffi.Pointer<ffi.Uint8>>[];
-    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
-    try {
-      final int clonedHandle;
-      {
-        final cloneStatusPtr = calloc<_UniFfiRustCallStatus>();
-        try {
-          cloneStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
-          cloneStatusPtr.ref.errorBuf
-            ..capacity = 0
-            ..len = 0
-            ..data = ffi.nullptr;
-          clonedHandle = _peatNodeClone(handle, cloneStatusPtr);
-          if (cloneStatusPtr.ref.code != _uniFfiRustCallStatusSuccess) {
-            throw StateError('UniFFI clone failed with status ${cloneStatusPtr.ref.code}');
-          }
-        } finally {
-          calloc.free(cloneStatusPtr);
-        }
-      }
-      (argBuf + 0).ref.u64 = clonedHandle;
-      _peatNodeGetCommandsFfiBuffer(argBuf, returnBuf);
-      final int statusCode = (returnBuf + 3).ref.i8;
-      if (statusCode != _uniFfiRustCallStatusSuccess) {
-        final ffi.Pointer<_UniFfiRustBuffer> errBufPtr = calloc<_UniFfiRustBuffer>();
-        errBufPtr.ref
-          ..capacity = (returnBuf + 4).ref.u64
-          ..len = (returnBuf + 5).ref.u64
-          ..data = (returnBuf + 6).ref.ptr.cast<ffi.Uint8>();
-        rustRetBufferPtrs.add(errBufPtr);
-        if (statusCode == _uniFfiRustCallStatusError) {
-          final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
-          throw _uniffiLiftPeatErrorException(errBytes);
-        }
-        String panicMsg = '';
-        if (errBufPtr.ref.len > 0) {
-          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
-          Uint8List bodyErr = rawErr;
-          if (rawErr.length >= 4) {
-            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
-            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
-          }
-          panicMsg = String.fromCharCodes(bodyErr);
-        }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
-      }
-      final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
-      retBufPtr.ref
-        ..capacity = (returnBuf + 0).ref.u64
-        ..len = (returnBuf + 1).ref.u64
-        ..data = (returnBuf + 2).ref.ptr.cast<ffi.Uint8>();
-      rustRetBufferPtrs.add(retBufPtr);
-      final Uint8List retBytes = retBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(retBufPtr.ref.data.asTypedList(retBufPtr.ref.len));
-      final _seqReader = _UniFfiBinaryReader(retBytes);
-      final int _seqLen = _seqReader.readI32();
-      final _seqOut = <CommandInfo>[];
-      for (var _i = 0; _i < _seqLen; _i++) { _seqOut.add(_uniffiReadCommandInfo(_seqReader)); }
-      return _seqOut;
-    } finally {
-      for (final ptr in foreignArgPtrs) {
-        if (ptr != ffi.nullptr) {
-          calloc.free(ptr);
-        }
-      }
-      for (final bufPtr in rustRetBufferPtrs) {
-        if (bufPtr.ref.data == ffi.nullptr && bufPtr.ref.len == 0 && bufPtr.ref.capacity == 0) {
-          continue;
-        }
-        final ffi.Pointer<_UniFfiRustCallStatus> freeStatusPtr = calloc<_UniFfiRustCallStatus>();
-        freeStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
-        freeStatusPtr.ref.errorBuf
-          ..capacity = 0
-          ..len = 0
-          ..data = ffi.nullptr;
-        _uniFfiRustBufferFree(bufPtr.ref, freeStatusPtr);
-        calloc.free(freeStatusPtr);
-        calloc.free(bufPtr);
-      }
-      calloc.free(argBuf);
-      calloc.free(returnBuf);
-    }
-  }
-
   late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeGetDocumentFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_get_document');
 
   String? peatNodeInvokeGetDocument(int handle, String collection, String docId) {
@@ -6144,94 +5914,6 @@ class PeatFfiFfi {
       final int _optTag = _optReader.readI8();
       if (_optTag == 0) return null;
       return _optReader.readString();
-    } finally {
-      for (final ptr in foreignArgPtrs) {
-        if (ptr != ffi.nullptr) {
-          calloc.free(ptr);
-        }
-      }
-      for (final bufPtr in rustRetBufferPtrs) {
-        if (bufPtr.ref.data == ffi.nullptr && bufPtr.ref.len == 0 && bufPtr.ref.capacity == 0) {
-          continue;
-        }
-        final ffi.Pointer<_UniFfiRustCallStatus> freeStatusPtr = calloc<_UniFfiRustCallStatus>();
-        freeStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
-        freeStatusPtr.ref.errorBuf
-          ..capacity = 0
-          ..len = 0
-          ..data = ffi.nullptr;
-        _uniFfiRustBufferFree(bufPtr.ref, freeStatusPtr);
-        calloc.free(freeStatusPtr);
-        calloc.free(bufPtr);
-      }
-      calloc.free(argBuf);
-      calloc.free(returnBuf);
-    }
-  }
-
-  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodeGetMarkersFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_get_markers');
-
-  List<MarkerInfo> peatNodeInvokeGetMarkers(int handle) {
-    final ffi.Pointer<_UniFfiFfiBufferElement> argBuf = calloc<_UniFfiFfiBufferElement>(1);
-    final ffi.Pointer<_UniFfiFfiBufferElement> returnBuf = calloc<_UniFfiFfiBufferElement>(7);
-    final foreignArgPtrs = <ffi.Pointer<ffi.Uint8>>[];
-    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
-    try {
-      final int clonedHandle;
-      {
-        final cloneStatusPtr = calloc<_UniFfiRustCallStatus>();
-        try {
-          cloneStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
-          cloneStatusPtr.ref.errorBuf
-            ..capacity = 0
-            ..len = 0
-            ..data = ffi.nullptr;
-          clonedHandle = _peatNodeClone(handle, cloneStatusPtr);
-          if (cloneStatusPtr.ref.code != _uniFfiRustCallStatusSuccess) {
-            throw StateError('UniFFI clone failed with status ${cloneStatusPtr.ref.code}');
-          }
-        } finally {
-          calloc.free(cloneStatusPtr);
-        }
-      }
-      (argBuf + 0).ref.u64 = clonedHandle;
-      _peatNodeGetMarkersFfiBuffer(argBuf, returnBuf);
-      final int statusCode = (returnBuf + 3).ref.i8;
-      if (statusCode != _uniFfiRustCallStatusSuccess) {
-        final ffi.Pointer<_UniFfiRustBuffer> errBufPtr = calloc<_UniFfiRustBuffer>();
-        errBufPtr.ref
-          ..capacity = (returnBuf + 4).ref.u64
-          ..len = (returnBuf + 5).ref.u64
-          ..data = (returnBuf + 6).ref.ptr.cast<ffi.Uint8>();
-        rustRetBufferPtrs.add(errBufPtr);
-        if (statusCode == _uniFfiRustCallStatusError) {
-          final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
-          throw _uniffiLiftPeatErrorException(errBytes);
-        }
-        String panicMsg = '';
-        if (errBufPtr.ref.len > 0) {
-          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
-          Uint8List bodyErr = rawErr;
-          if (rawErr.length >= 4) {
-            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
-            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
-          }
-          panicMsg = String.fromCharCodes(bodyErr);
-        }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
-      }
-      final ffi.Pointer<_UniFfiRustBuffer> retBufPtr = calloc<_UniFfiRustBuffer>();
-      retBufPtr.ref
-        ..capacity = (returnBuf + 0).ref.u64
-        ..len = (returnBuf + 1).ref.u64
-        ..data = (returnBuf + 2).ref.ptr.cast<ffi.Uint8>();
-      rustRetBufferPtrs.add(retBufPtr);
-      final Uint8List retBytes = retBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(retBufPtr.ref.data.asTypedList(retBufPtr.ref.len));
-      final _seqReader = _UniFfiBinaryReader(retBytes);
-      final int _seqLen = _seqReader.readI32();
-      final _seqOut = <MarkerInfo>[];
-      for (var _i = 0; _i < _seqLen; _i++) { _seqOut.add(_uniffiReadMarkerInfo(_seqReader)); }
-      return _seqOut;
     } finally {
       for (final ptr in foreignArgPtrs) {
         if (ptr != ffi.nullptr) {
@@ -7845,114 +7527,6 @@ class PeatFfiFfi {
     }
   }
 
-  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodePutCommandFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_put_command');
-
-  void peatNodeInvokePutCommand(int handle, CommandInfo command) {
-    final ffi.Pointer<_UniFfiFfiBufferElement> argBuf = calloc<_UniFfiFfiBufferElement>(4);
-    final ffi.Pointer<_UniFfiFfiBufferElement> returnBuf = calloc<_UniFfiFfiBufferElement>(4);
-    final foreignArgPtrs = <ffi.Pointer<ffi.Uint8>>[];
-    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
-    try {
-      final int clonedHandle;
-      {
-        final cloneStatusPtr = calloc<_UniFfiRustCallStatus>();
-        try {
-          cloneStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
-          cloneStatusPtr.ref.errorBuf
-            ..capacity = 0
-            ..len = 0
-            ..data = ffi.nullptr;
-          clonedHandle = _peatNodeClone(handle, cloneStatusPtr);
-          if (cloneStatusPtr.ref.code != _uniFfiRustCallStatusSuccess) {
-            throw StateError('UniFFI clone failed with status ${cloneStatusPtr.ref.code}');
-          }
-        } finally {
-          calloc.free(cloneStatusPtr);
-        }
-      }
-      (argBuf + 0).ref.u64 = clonedHandle;
-      final Uint8List commandBytes = _uniffiEncodeCommandInfo(command);
-      final ffi.Pointer<ffi.Uint8> commandPtr = commandBytes.isEmpty ? ffi.nullptr : calloc<ffi.Uint8>(commandBytes.length);
-      if (commandBytes.isNotEmpty) { commandPtr.asTypedList(commandBytes.length).setAll(0, commandBytes); }
-      foreignArgPtrs.add(commandPtr);
-      final ffi.Pointer<_UniFfiRustCallStatus> commandFromBytesStatusPtr = calloc<_UniFfiRustCallStatus>();
-      commandFromBytesStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
-      commandFromBytesStatusPtr.ref.errorBuf
-        ..capacity = 0
-        ..len = 0
-        ..data = ffi.nullptr;
-      final ffi.Pointer<_UniFfiForeignBytes> commandForeignPtr = calloc<_UniFfiForeignBytes>();
-      commandForeignPtr.ref
-        ..len = commandBytes.length
-        ..data = commandPtr;
-      final _UniFfiRustBuffer commandRustBuffer = _uniFfiRustBufferFromBytes(commandForeignPtr.ref, commandFromBytesStatusPtr);
-      calloc.free(commandForeignPtr);
-      final int commandFromBytesCode = commandFromBytesStatusPtr.ref.code;
-      final _UniFfiRustBuffer commandFromBytesErrBuf = commandFromBytesStatusPtr.ref.errorBuf;
-      calloc.free(commandFromBytesStatusPtr);
-      if (commandFromBytesCode != _uniFfiRustCallStatusSuccess) {
-        final ffi.Pointer<_UniFfiRustBuffer> commandFromBytesErrBufPtr = calloc<_UniFfiRustBuffer>();
-        commandFromBytesErrBufPtr.ref
-          ..capacity = commandFromBytesErrBuf.capacity
-          ..len = commandFromBytesErrBuf.len
-          ..data = commandFromBytesErrBuf.data;
-        rustRetBufferPtrs.add(commandFromBytesErrBufPtr);
-        throw StateError('UniFFI rustbuffer_from_bytes failed with status $commandFromBytesCode');
-      }
-      (argBuf + 1).ref.u64 = commandRustBuffer.capacity;
-      (argBuf + 2).ref.u64 = commandRustBuffer.len;
-      (argBuf + 3).ref.ptr = commandRustBuffer.data.cast<ffi.Void>();
-      _peatNodePutCommandFfiBuffer(argBuf, returnBuf);
-      final int statusCode = (returnBuf + 0).ref.i8;
-      if (statusCode != _uniFfiRustCallStatusSuccess) {
-        final ffi.Pointer<_UniFfiRustBuffer> errBufPtr = calloc<_UniFfiRustBuffer>();
-        errBufPtr.ref
-          ..capacity = (returnBuf + 1).ref.u64
-          ..len = (returnBuf + 2).ref.u64
-          ..data = (returnBuf + 3).ref.ptr.cast<ffi.Uint8>();
-        rustRetBufferPtrs.add(errBufPtr);
-        if (statusCode == _uniFfiRustCallStatusError) {
-          final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
-          throw _uniffiLiftPeatErrorException(errBytes);
-        }
-        String panicMsg = '';
-        if (errBufPtr.ref.len > 0) {
-          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
-          Uint8List bodyErr = rawErr;
-          if (rawErr.length >= 4) {
-            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
-            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
-          }
-          panicMsg = String.fromCharCodes(bodyErr);
-        }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
-      }
-      return;
-    } finally {
-      for (final ptr in foreignArgPtrs) {
-        if (ptr != ffi.nullptr) {
-          calloc.free(ptr);
-        }
-      }
-      for (final bufPtr in rustRetBufferPtrs) {
-        if (bufPtr.ref.data == ffi.nullptr && bufPtr.ref.len == 0 && bufPtr.ref.capacity == 0) {
-          continue;
-        }
-        final ffi.Pointer<_UniFfiRustCallStatus> freeStatusPtr = calloc<_UniFfiRustCallStatus>();
-        freeStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
-        freeStatusPtr.ref.errorBuf
-          ..capacity = 0
-          ..len = 0
-          ..data = ffi.nullptr;
-        _uniFfiRustBufferFree(bufPtr.ref, freeStatusPtr);
-        calloc.free(freeStatusPtr);
-        calloc.free(bufPtr);
-      }
-      calloc.free(argBuf);
-      calloc.free(returnBuf);
-    }
-  }
-
   late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodePutDocumentFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_put_document');
 
   void peatNodeInvokePutDocument(int handle, String collection, String docId, String jsonData) {
@@ -8073,114 +7647,6 @@ class PeatFfiFfi {
       (argBuf + 8).ref.u64 = jsonDataRustBuffer.len;
       (argBuf + 9).ref.ptr = jsonDataRustBuffer.data.cast<ffi.Void>();
       _peatNodePutDocumentFfiBuffer(argBuf, returnBuf);
-      final int statusCode = (returnBuf + 0).ref.i8;
-      if (statusCode != _uniFfiRustCallStatusSuccess) {
-        final ffi.Pointer<_UniFfiRustBuffer> errBufPtr = calloc<_UniFfiRustBuffer>();
-        errBufPtr.ref
-          ..capacity = (returnBuf + 1).ref.u64
-          ..len = (returnBuf + 2).ref.u64
-          ..data = (returnBuf + 3).ref.ptr.cast<ffi.Uint8>();
-        rustRetBufferPtrs.add(errBufPtr);
-        if (statusCode == _uniFfiRustCallStatusError) {
-          final Uint8List errBytes = errBufPtr.ref.len == 0 ? Uint8List(0) : Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
-          throw _uniffiLiftPeatErrorException(errBytes);
-        }
-        String panicMsg = '';
-        if (errBufPtr.ref.len > 0) {
-          final Uint8List rawErr = Uint8List.fromList(errBufPtr.ref.data.asTypedList(errBufPtr.ref.len));
-          Uint8List bodyErr = rawErr;
-          if (rawErr.length >= 4) {
-            final int prefixLen = (rawErr[0] << 24) | (rawErr[1] << 16) | (rawErr[2] << 8) | rawErr[3];
-            if (prefixLen == rawErr.length - 4) { bodyErr = rawErr.sublist(4); }
-          }
-          panicMsg = String.fromCharCodes(bodyErr);
-        }
-        throw StateError('UniFFI ffibuffer call failed with status $statusCode: $panicMsg');
-      }
-      return;
-    } finally {
-      for (final ptr in foreignArgPtrs) {
-        if (ptr != ffi.nullptr) {
-          calloc.free(ptr);
-        }
-      }
-      for (final bufPtr in rustRetBufferPtrs) {
-        if (bufPtr.ref.data == ffi.nullptr && bufPtr.ref.len == 0 && bufPtr.ref.capacity == 0) {
-          continue;
-        }
-        final ffi.Pointer<_UniFfiRustCallStatus> freeStatusPtr = calloc<_UniFfiRustCallStatus>();
-        freeStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
-        freeStatusPtr.ref.errorBuf
-          ..capacity = 0
-          ..len = 0
-          ..data = ffi.nullptr;
-        _uniFfiRustBufferFree(bufPtr.ref, freeStatusPtr);
-        calloc.free(freeStatusPtr);
-        calloc.free(bufPtr);
-      }
-      calloc.free(argBuf);
-      calloc.free(returnBuf);
-    }
-  }
-
-  late final void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr) _peatNodePutMarkerFfiBuffer = _lib.lookupFunction<ffi.Void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr), void Function(ffi.Pointer<_UniFfiFfiBufferElement> argPtr, ffi.Pointer<_UniFfiFfiBufferElement> returnPtr)>('uniffi_ffibuffer_peat_ffi_fn_method_peatnode_put_marker');
-
-  void peatNodeInvokePutMarker(int handle, MarkerInfo marker) {
-    final ffi.Pointer<_UniFfiFfiBufferElement> argBuf = calloc<_UniFfiFfiBufferElement>(4);
-    final ffi.Pointer<_UniFfiFfiBufferElement> returnBuf = calloc<_UniFfiFfiBufferElement>(4);
-    final foreignArgPtrs = <ffi.Pointer<ffi.Uint8>>[];
-    final rustRetBufferPtrs = <ffi.Pointer<_UniFfiRustBuffer>>[];
-    try {
-      final int clonedHandle;
-      {
-        final cloneStatusPtr = calloc<_UniFfiRustCallStatus>();
-        try {
-          cloneStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
-          cloneStatusPtr.ref.errorBuf
-            ..capacity = 0
-            ..len = 0
-            ..data = ffi.nullptr;
-          clonedHandle = _peatNodeClone(handle, cloneStatusPtr);
-          if (cloneStatusPtr.ref.code != _uniFfiRustCallStatusSuccess) {
-            throw StateError('UniFFI clone failed with status ${cloneStatusPtr.ref.code}');
-          }
-        } finally {
-          calloc.free(cloneStatusPtr);
-        }
-      }
-      (argBuf + 0).ref.u64 = clonedHandle;
-      final Uint8List markerBytes = _uniffiEncodeMarkerInfo(marker);
-      final ffi.Pointer<ffi.Uint8> markerPtr = markerBytes.isEmpty ? ffi.nullptr : calloc<ffi.Uint8>(markerBytes.length);
-      if (markerBytes.isNotEmpty) { markerPtr.asTypedList(markerBytes.length).setAll(0, markerBytes); }
-      foreignArgPtrs.add(markerPtr);
-      final ffi.Pointer<_UniFfiRustCallStatus> markerFromBytesStatusPtr = calloc<_UniFfiRustCallStatus>();
-      markerFromBytesStatusPtr.ref.code = _uniFfiRustCallStatusSuccess;
-      markerFromBytesStatusPtr.ref.errorBuf
-        ..capacity = 0
-        ..len = 0
-        ..data = ffi.nullptr;
-      final ffi.Pointer<_UniFfiForeignBytes> markerForeignPtr = calloc<_UniFfiForeignBytes>();
-      markerForeignPtr.ref
-        ..len = markerBytes.length
-        ..data = markerPtr;
-      final _UniFfiRustBuffer markerRustBuffer = _uniFfiRustBufferFromBytes(markerForeignPtr.ref, markerFromBytesStatusPtr);
-      calloc.free(markerForeignPtr);
-      final int markerFromBytesCode = markerFromBytesStatusPtr.ref.code;
-      final _UniFfiRustBuffer markerFromBytesErrBuf = markerFromBytesStatusPtr.ref.errorBuf;
-      calloc.free(markerFromBytesStatusPtr);
-      if (markerFromBytesCode != _uniFfiRustCallStatusSuccess) {
-        final ffi.Pointer<_UniFfiRustBuffer> markerFromBytesErrBufPtr = calloc<_UniFfiRustBuffer>();
-        markerFromBytesErrBufPtr.ref
-          ..capacity = markerFromBytesErrBuf.capacity
-          ..len = markerFromBytesErrBuf.len
-          ..data = markerFromBytesErrBuf.data;
-        rustRetBufferPtrs.add(markerFromBytesErrBufPtr);
-        throw StateError('UniFFI rustbuffer_from_bytes failed with status $markerFromBytesCode');
-      }
-      (argBuf + 1).ref.u64 = markerRustBuffer.capacity;
-      (argBuf + 2).ref.u64 = markerRustBuffer.len;
-      (argBuf + 3).ref.ptr = markerRustBuffer.data.cast<ffi.Void>();
-      _peatNodePutMarkerFfiBuffer(argBuf, returnBuf);
       final int statusCode = (returnBuf + 0).ref.i8;
       if (statusCode != _uniFfiRustCallStatusSuccess) {
         final ffi.Pointer<_UniFfiRustBuffer> errBufPtr = calloc<_UniFfiRustBuffer>();
@@ -10965,12 +10431,6 @@ final class PeatNode {
     return _ffi.peatNodeInvokeGetCells(_handle);
   }
 
-  /// Get all pending commands
-  List<CommandInfo> getCommands() {
-    _ensureOpen();
-    return _ffi.peatNodeInvokeGetCommands(_handle);
-  }
-
   /// Retrieve a document from the **raw-bytes store** as JSON.
   ///
   /// # Storage path
@@ -10991,19 +10451,6 @@ final class PeatNode {
   String? getDocument(String collection, String docId) {
     _ensureOpen();
     return _ffi.peatNodeInvokeGetDocument(_handle, collection, docId);
-  }
-
-  /// Get all markers from the sync document.
-  ///
-  /// Returns the canonical typed list of operator-placed pins
-  /// across the mesh. Origin-agnostic — locally-created and
-  /// peer-synced markers are indistinguishable in the result.
-  /// Plugin consumers (PeatMapComponent's periodic refresh, the
-  /// Peat Markers panel readout) call this and render every entry
-  /// with the same code path.
-  List<MarkerInfo> getMarkers() {
-    _ensureOpen();
-    return _ffi.peatNodeInvokeGetMarkers(_handle);
   }
 
   /// Get all nodes from the sync document
@@ -11179,28 +10626,10 @@ final class PeatNode {
     _ffi.peatNodeInvokePutCell(_handle, cell);
   }
 
-  /// Store a command (for C2 issuance)
-  void putCommand(CommandInfo command) {
-    _ensureOpen();
-    _ffi.peatNodeInvokePutCommand(_handle, command);
-  }
-
   /// Store a JSON document in a collection
   void putDocument(String collection, String docId, String jsonData) {
     _ensureOpen();
     _ffi.peatNodeInvokePutDocument(_handle, collection, docId, jsonData);
-  }
-
-  /// Store a marker.
-  ///
-  /// Persists into the `markers` collection. peat-mesh's fan-out
-  /// observes the change and routes via the registered transports
-  /// (universal-Document path on BLE via LiteBridgeTranslator,
-  /// iroh sync for cross-mesh peers). Receivers see the same
-  /// `MarkerInfo` shape on their side.
-  void putMarker(MarkerInfo marker) {
-    _ensureOpen();
-    _ffi.peatNodeInvokePutMarker(_handle, marker);
   }
 
   /// Store a node
@@ -11465,4 +10894,3 @@ String encodeTrackToCot(TrackData track) {
 String peatVersion() {
   return _bindings().peatVersion();
 }
-
