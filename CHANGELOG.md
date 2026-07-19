@@ -1,3 +1,11 @@
+## Unreleased
+
+* Own the Dart FFIBuffer adapter in the native wrapper, pin `peat-ffi 0.2.12`
+  without its upstream Dart compatibility feature, and validate the complete
+  Dart ABI against the optimized wrapper artifact (#28).
+* Keep the public marker and command facades on the released generic document
+  API while removing stale generated lookups for nonexistent typed symbols.
+
 ## 0.1.0
 
 * First real versioned release — everything below had accumulated on `main`

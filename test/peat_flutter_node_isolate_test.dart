@@ -33,7 +33,8 @@ void main() {
     test(
       'isolate round-trip smoke test (skipped — no native library available)',
       () {},
-      skip: 'peat_ffi native library not found for this platform/host; '
+      skip:
+          'peat_ffi native library not found for this platform/host; '
           'see CONTRIBUTING.md for how to build it locally.',
     );
     return;
@@ -43,26 +44,32 @@ void main() {
     PeatFlutterNode.initialize();
 
     final tempDir = await Directory.systemTemp.createTemp('peat_flutter_test_');
-    addTearDown(() => tempDir.delete(recursive: true).catchError((_) => tempDir));
+    addTearDown(
+      () => tempDir.delete(recursive: true).catchError((_) => tempDir),
+    );
 
-    final node = await PeatFlutterNode.create(NodeConfig(
-      appId: 'peat-flutter-isolate-test',
-      sharedKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
-      bindAddress: null,
-      storagePath: tempDir.path,
-      transport: null,
-    ));
-
-    // A second create() while this node is live must fail loudly, not
-    // silently leak/overwrite the native handle (peat-flutter#25 QA).
-    await expectLater(
-      PeatFlutterNode.create(NodeConfig(
-        appId: 'peat-flutter-isolate-test-2',
+    final node = await PeatFlutterNode.create(
+      NodeConfig(
+        appId: 'peat-flutter-isolate-test',
         sharedKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
         bindAddress: null,
         storagePath: tempDir.path,
         transport: null,
-      )),
+      ),
+    );
+
+    // A second create() while this node is live must fail loudly, not
+    // silently leak/overwrite the native handle (peat-flutter#25 QA).
+    await expectLater(
+      PeatFlutterNode.create(
+        NodeConfig(
+          appId: 'peat-flutter-isolate-test-2',
+          sharedKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+          bindAddress: null,
+          storagePath: tempDir.path,
+          transport: null,
+        ),
+      ),
       throwsA(isA<PeatFlutterProxyError>()),
     );
 
@@ -78,14 +85,45 @@ void main() {
     final raw = await node.getRaw('test', docId);
     expect(raw, '{"hello":"world"}');
 
+    // Flutter-owned typed facades use peat-ffi's generic document API. This
+    // guards against reintroducing stale native get/put marker/command symbols.
+    const marker = MarkerInfo(
+      uid: 'marker-1',
+      markerType: 'b-m-p-w',
+      lat: 38.0,
+      lon: -77.0,
+      hae: null,
+      ts: 1234,
+      callsign: 'test',
+      color: null,
+      cellId: null,
+      deleted: false,
+    );
+    await node.putMarker(marker);
+    expect(await node.markers, contains(marker));
+
+    const command = CommandInfo(
+      id: 'command-1',
+      commandType: 'MOVE',
+      targetId: 'node-1',
+      parameters: '{}',
+      priority: 1,
+      status: CommandStatus.pending,
+      originator: 'test',
+      createdAt: 1234,
+      lastUpdate: 1234,
+    );
+    await node.putCommand(command);
+    expect(await node.commands, contains(command));
+
     // subscribeChanges: the stream delivers the write above, and
     // cancelling it correctly stops isolate-side polling (no error/leak).
     final changeReceived = Completer<void>();
-    final sub = node.subscribeChanges(
-      pollInterval: const Duration(milliseconds: 20),
-    ).listen((change) {
-      if (!changeReceived.isCompleted) changeReceived.complete();
-    });
+    final sub = node
+        .subscribeChanges(pollInterval: const Duration(milliseconds: 20))
+        .listen((change) {
+          if (!changeReceived.isCompleted) changeReceived.complete();
+        });
     await node.publishRaw('test', '{"another":"change"}');
     await changeReceived.future.timeout(const Duration(seconds: 5));
     await sub.cancel();

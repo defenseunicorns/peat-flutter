@@ -29,19 +29,21 @@ Android, iOS, macOS, Linux, and Windows (all via FFI).
 This plugin was built under a few deliberate constraints worth knowing before
 you build or contribute:
 
-- **Native dependency.** The plugin links against `peat-ffi`, a Rust library
-  from the [`peat`](https://github.com/defenseunicorns) workspace. Building the
-  native library from source requires a checkout of that workspace as a sibling
-  directory (default `../peat`, override with `PEAT_WORKSPACE_DIR`).
+- **Native dependency.** The plugin's `rust/` wrapper builds the published
+  `peat-ffi` crate from crates.io; no sibling `peat` checkout is needed for the
+  native library. A sibling checkout is only used when regenerating protobuf
+  sources (`PEAT_WORKSPACE_DIR`, default `../peat`).
 - **Generated sources are committed.** `lib/src/generated/` (FFI bindings) and
   `lib/src/proto/` (proto stubs) are committed so that consumers can build
   without the Rust / UniFFI / `protoc` toolchain. They only need to be
   regenerated when the native surface changes.
-- **Bindings are maintained by hand.** The `uniffi-bindgen-dart` generator is
-  not currently publicly available, so `lib/src/generated/peat_ffi.dart` is
-  maintained manually. `just check-bindings` verifies it against the compiled
-  library. See the [`justfile`](./justfile) for the specific invariants.
-- **Pre-1.0.** The API surface is still evolving (current version `0.0.1`).
+- **The Dart ABI is maintained here.** The `uniffi-bindgen-dart` generator is
+  not currently publicly available, so both `lib/src/generated/peat_ffi.dart`
+  and its native FFIBuffer adapter in `rust/src/dart_ffi.rs` are maintained
+  manually. `just check-bindings` verifies every Dart FFIBuffer and checksum
+  lookup against the optimized wrapper artifact. See the
+  [`justfile`](./justfile) for the specific invariants.
+- **Pre-1.0.** The API surface is still evolving (current version `0.1.0`).
 
 ## Getting started
 
@@ -80,7 +82,7 @@ just analyze          # dart analyze lib/
 just gen-proto        # regenerate Dart proto stubs from peat-schema
 just check-bindings   # verify the generated FFI bindings against libpeat_ffi
 just regen            # gen-proto + check-bindings
-just build-host       # build peat-ffi for the native host
+just build-host       # build the wrapper-owned libpeat_ffi for the native host
 just build-android    # build peat-ffi for all Android ABIs (needs cargo-ndk + NDK)
 just build-ios        # build PeatFFI.xcframework (macOS host only)
 just build-macos      # build the universal macOS dylib (macOS host only)

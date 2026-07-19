@@ -5,21 +5,24 @@
 // surfaces as a crash/throw here rather than only on-device. Not a unit test —
 // run manually:
 //
-//   cargo build --release -p peat-ffi --features sync   # in ../peat
+//   just build-host
 //   dart run tool/smoke_reconnect.dart \
-//     /Users/caidenplummer/code/peat/target/release/libpeat_ffi.dylib
+//     rust/target/release/libpeat_ffi.so
 //
-// Uses sync-only (no BLE) so it runs in a plain Dart process without
-// CoreBluetooth/app-bundle context.
+// The wrapper uses its production feature set; the smoke still runs headlessly
+// because the native transport can initialize without a platform UI context.
 
 import 'dart:io';
 
 import 'package:peat_flutter/src/generated/peat_ffi.dart';
 
 void main(List<String> args) {
-  final libPath = args.isNotEmpty
-      ? args.first
-      : '/Users/caidenplummer/code/peat/target/release/libpeat_ffi.dylib';
+  final defaultLibPath = Platform.isMacOS
+      ? 'rust/target/release/libpeat_ffi.dylib'
+      : Platform.isWindows
+      ? r'rust\target\release\peat_ffi.dll'
+      : 'rust/target/release/libpeat_ffi.so';
+  final libPath = args.isNotEmpty ? args.first : defaultLibPath;
   if (!File(libPath).existsSync()) {
     stderr.writeln('lib not found: $libPath');
     exit(2);
@@ -30,21 +33,23 @@ void main(List<String> args) {
   final tmp = Directory.systemTemp.createTempSync('peat-smoke-');
   PeatNode? node;
   try {
-    node = createNode(NodeConfig(
-      appId: 'peat-flutter-example',
-      sharedKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
-      bindAddress: '127.0.0.1:0',
-      storagePath: tmp.path,
-      // Non-null transport (matches the app) — exercises the TransportConfigFFI
-      // encode path, which must serialize all 6 Rust fields incl. enableN0Relay.
-      transport: const TransportConfigFFI(
-        enableBle: true,
-        bleMeshId: null,
-        blePowerProfile: 'balanced',
-        transportPreference: null,
-        collectionRoutesJson: null,
+    node = createNode(
+      NodeConfig(
+        appId: 'peat-flutter-example',
+        sharedKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+        bindAddress: '127.0.0.1:0',
+        storagePath: tmp.path,
+        // Non-null transport (matches the app) — exercises the TransportConfigFFI
+        // encode path, which must serialize all 6 Rust fields incl. enableN0Relay.
+        transport: const TransportConfigFFI(
+          enableBle: true,
+          bleMeshId: null,
+          blePowerProfile: 'balanced',
+          transportPreference: null,
+          collectionRoutesJson: null,
+        ),
       ),
-    ));
+    );
     print('OK   createNode -> ${node.nodeId()}');
 
     // A plausible-looking (fake) peer: 64 hex chars, unroutable address. The
@@ -62,13 +67,14 @@ void main(List<String> args) {
 
     // Idempotent re-remember + a relay_url-present variant (Option<String> arg).
     node.rosterRemember(
-        'peat-flutter-example',
-        PeerInfo(
-          name: 'charlie',
-          nodeId: 'b' * 64,
-          addresses: const [],
-          relayUrl: 'https://relay.example',
-        ));
+      'peat-flutter-example',
+      PeerInfo(
+        name: 'charlie',
+        nodeId: 'b' * 64,
+        addresses: const [],
+        relayUrl: 'https://relay.example',
+      ),
+    );
     print('OK   rosterRemember (empty addresses + relay_url)');
 
     node.reconnectKnownPeers();
@@ -96,7 +102,9 @@ void main(List<String> args) {
     final changes = sub.pollChanges();
     print('OK   pollChanges decoded ${changes.length} change(s)');
     for (final c in changes) {
-      print('     ${c.collection}:${c.docId} ${c.changeType} origin=${c.origin}');
+      print(
+        '     ${c.collection}:${c.docId} ${c.changeType} origin=${c.origin}',
+      );
     }
     if (changes.isEmpty) {
       throw StateError('expected at least one change from the local write');
